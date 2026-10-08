@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeSupervisor"
 #include <Trade\Trade.mqh>
-#property version   "2.50"
+#property version   "2.60"
 
 enum EIndMode
   {
@@ -29,6 +29,7 @@ input int      InpBufA1  = 5;      // Asosiy bufer (DIR yoki BUY)
 input int      InpBufB1  = 0;      // Ikkinchi bufer (faqat ARROWS: SELL)
 input double   InpHi1    = 0;      // LEVEL: yuqori chegara
 input double   InpLo1    = 0;      // LEVEL: quyi chegara
+input double   InpWeight1= 1.0;    // Vazn (ovoz salmogi, 0 = eslatma uchun, hisobga olinmaydi)
 
 input group "=== Indikator 2 ==="
 input bool     InpUse2   = true;
@@ -38,6 +39,7 @@ input int      InpBufA2  = 0;
 input int      InpBufB2  = 0;
 input double   InpHi2    = 0;
 input double   InpLo2    = 0;
+input double   InpWeight2= 1.0;    // Vazn (ovoz salmogi)
 
 input group "=== Indikator 3 ==="
 input bool     InpUse3   = true;
@@ -47,6 +49,7 @@ input int      InpBufA3  = 4;      // BUY strelka buferi
 input int      InpBufB3  = 5;      // SELL strelka buferi
 input double   InpHi3    = 0;
 input double   InpLo3    = 0;
+input double   InpWeight3= 1.0;    // Vazn (ovoz salmogi)
 
 input group "=== Indikator 4 ==="
 input bool     InpUse4   = false;
@@ -56,6 +59,7 @@ input int      InpBufA4  = 0;
 input int      InpBufB4  = 0;
 input double   InpHi4    = 0;
 input double   InpLo4    = 0;
+input double   InpWeight4= 1.0;    // Vazn (ovoz salmogi)
 
 input group "=== Umumiy ==="
 input int      InpLookback   = 3;      // ARROWS rejimi: signal necha bar ichida bolgani hisoblansin
@@ -104,6 +108,7 @@ struct IndSlot
    EIndMode mode;
    int      bufA, bufB;
    double   hi, lo;
+   double   weight;      // ovoz salmogi (vaznli XULOSA uchun)
    int      handle;
    int      vote;        // oxirgi hisoblangan ovoz
   };
@@ -115,6 +120,8 @@ struct TradeRec
    int      dir;          // 1 BUY, -1 SELL
    int      agree;        // nechta indikator tasdiqladi
    int      total;        // nechta indikator ishladi
+   int      votes[4];     // har indikatorning ochilish paytidagi ovozi
+   double   wscore;        // vaznli xulosa skori (-1..+1)
    string   detail;
    double   price;
    datetime time;
@@ -122,6 +129,11 @@ struct TradeRec
 TradeRec g_rec[];
 
 int    s_cnt[5], s_win[5];      // tasdiqlar soni boyicha (0..4)
+int    s_indAgrCnt[4], s_indAgrWin[4];   // indikator "mos kelgan" savdolari
+int    s_indAgnCnt[4], s_indAgnWin[4];   // indikator "qarshi bolgan" savdolari
+double s_indAgrSum[4], s_indAgnSum[4];
+double g_grossWin = 0, g_grossLoss = 0;
+bool     g_muted      = false;     // Telegram /mute bilan yoqiladi
 CTrade   g_trade;
 bool     g_addOn      = false;     // Telegram /add_on bilan yoqiladi
 int      g_addsBuy    = 0, g_addsSell = 0;
@@ -144,19 +156,20 @@ string PFX = "SUP_";
 
 //+------------------------------------------------------------------+
 void SetSlot(const int i, const bool use, const string name, const EIndMode m,
-             const int a, const int b, const double hi, const double lo)
+             const int a, const int b, const double hi, const double lo, const double weight)
   {
    g_ind[i].use=use; g_ind[i].name=name; g_ind[i].mode=m;
    g_ind[i].bufA=a; g_ind[i].bufB=b; g_ind[i].hi=hi; g_ind[i].lo=lo;
+   g_ind[i].weight = (weight>0 ? weight : 1.0);
    g_ind[i].handle=INVALID_HANDLE; g_ind[i].vote=0;
   }
 
 int OnInit()
   {
-   SetSlot(0, InpUse1, InpName1, InpMode1, InpBufA1, InpBufB1, InpHi1, InpLo1);
-   SetSlot(1, InpUse2, InpName2, InpMode2, InpBufA2, InpBufB2, InpHi2, InpLo2);
-   SetSlot(2, InpUse3, InpName3, InpMode3, InpBufA3, InpBufB3, InpHi3, InpLo3);
-   SetSlot(3, InpUse4, InpName4, InpMode4, InpBufA4, InpBufB4, InpHi4, InpLo4);
+   SetSlot(0, InpUse1, InpName1, InpMode1, InpBufA1, InpBufB1, InpHi1, InpLo1, InpWeight1);
+   SetSlot(1, InpUse2, InpName2, InpMode2, InpBufA2, InpBufB2, InpHi2, InpLo2, InpWeight2);
+   SetSlot(2, InpUse3, InpName3, InpMode3, InpBufA3, InpBufB3, InpHi3, InpLo3, InpWeight3);
+   SetSlot(3, InpUse4, InpName4, InpMode4, InpBufA4, InpBufB4, InpHi4, InpLo4, InpWeight4);
 
    int ok = 0;
    for(int i=0; i<4; i++)
@@ -185,6 +198,9 @@ int OnInit()
      }
 
    ArrayInitialize(s_cnt,0); ArrayInitialize(s_win,0); ArrayInitialize(s_sum,0.0);
+   ArrayInitialize(s_indAgrCnt,0); ArrayInitialize(s_indAgrWin,0); ArrayInitialize(s_indAgrSum,0.0);
+   ArrayInitialize(s_indAgnCnt,0); ArrayInitialize(s_indAgnWin,0); ArrayInitialize(s_indAgnSum,0.0);
+   g_grossWin=0; g_grossLoss=0; g_muted=false;
    g_trade.SetExpertMagicNumber(777001);
    g_trade.SetTypeFillingBySymbol(_Symbol);
    g_addOn = InpAddEnable;
@@ -308,6 +324,7 @@ void SendChartShot(const string caption, const bool force=false)
 void Send(const string text)
   {
    Print("SUPERVISOR: ", text);
+   if(g_muted) return;   // /mute yoqilgan - faqat jurnalga yoziladi
    if(InpUseAlert) Alert(text);
    if(InpUsePush)
      {
@@ -399,6 +416,50 @@ void JournalWrite(const string line)
    FileClose(h);
   }
 
+//========================== HISOBOT =================================//
+string BuildReport()
+  {
+   int used=0; for(int i=0;i<4;i++) if(g_ind[i].use) used++;
+   int totalTrades=0, totalWin=0; double totalNet=0;
+   for(int k=0;k<=4;k++) { totalTrades+=s_cnt[k]; totalWin+=s_win[k]; totalNet+=s_sum[k]; }
+   double wr = (totalTrades>0) ? 100.0*totalWin/totalTrades : 0;
+   double pf = (g_grossLoss>0) ? g_grossWin/g_grossLoss : (g_grossWin>0 ? 0 : -1);
+
+   string t = "HISOBOT\n";
+   t += StringFormat("Jami: %d savdo, WR %.0f%%, natija %+.2f %s\n",
+        totalTrades, wr, totalNet, AccountInfoString(ACCOUNT_CURRENCY));
+   t += (pf>=0) ? StringFormat("Profit factor: %.2f\n", pf) : "Profit factor: hali zarar yoq\n";
+
+   t += "\n--- Tasdiqlar soni boyicha ---\n";
+   bool any=false;
+   for(int k=used; k>=0; k--)
+     {
+      if(s_cnt[k]==0) continue;
+      any=true;
+      double kwr = 100.0*s_win[k]/s_cnt[k];
+      t += StringFormat("%d/%d tasdiq: %d savdo, WR %.0f%%, %+.2f\n", k, used, s_cnt[k], kwr, s_sum[k]);
+     }
+   if(!any) t += "hali savdo yopilmagan\n";
+
+   t += "\n--- Indikatorlar boyicha ---\n";
+   for(int i=0;i<4;i++)
+     {
+      if(!g_ind[i].use) continue;
+      t += g_ind[i].name+" (vazn "+DoubleToString(g_ind[i].weight,1)+"):\n";
+      if(s_indAgrCnt[i]>0)
+         t += StringFormat("  mos kelganda:  %d savdo, WR %.0f%%, %+.2f\n",
+              s_indAgrCnt[i], 100.0*s_indAgrWin[i]/s_indAgrCnt[i], s_indAgrSum[i]);
+      else
+         t += "  mos kelganda:  malumot yoq\n";
+      if(s_indAgnCnt[i]>0)
+         t += StringFormat("  qarshi bolganda: %d savdo, WR %.0f%%, %+.2f\n",
+              s_indAgnCnt[i], 100.0*s_indAgnWin[i]/s_indAgnCnt[i], s_indAgnSum[i]);
+      else
+         t += "  qarshi bolganda: malumot yoq\n";
+     }
+   return(t);
+  }
+
 //============================ PANEL ================================//
 void Row(const int r, const string txt, const color c)
   {
@@ -478,7 +539,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       int dir = (dtype==DEAL_TYPE_BUY) ? 1 : -1;
       string dirTxt = (dir>0) ? "BUY" : "SELL";
       int agree=0, against=0, neutral=0, total=0;
+      double wAgree=0, wAgainst=0, wTotal=0;
       string lines = "", okList="", badList="", neuList="";
+      int votes[4]; ArrayInitialize(votes,0);
 
       for(int i=0;i<4;i++)
         {
@@ -486,24 +549,30 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
          total++;
          int v = AskIndicator(i);
          g_ind[i].vote = v;
+         votes[i] = v;
 
          string sig  = (v>0) ? "BUY" : ((v<0) ? "SELL" : "neytral");
          string mark;
-         if(v==dir)       { agree++;   mark = "tasdiqladi";  okList  += g_ind[i].name+" "; }
-         else if(v==-dir) { against++; mark = "QARSHI";      badList += g_ind[i].name+" "; }
-         else             { neutral++; mark = "signal yoq";  neuList += g_ind[i].name+" "; }
+         wTotal += g_ind[i].weight;
+         if(v==dir)       { agree++;   wAgree   += g_ind[i].weight; mark = "tasdiqladi";  okList  += g_ind[i].name+" "; }
+         else if(v==-dir) { against++; wAgainst += g_ind[i].weight; mark = "QARSHI";      badList += g_ind[i].name+" "; }
+         else             { neutral++;                              mark = "signal yoq";  neuList += g_ind[i].name+" "; }
 
-         // har bir indikator alohida qatorda: nomi -> signali -> bahosi
-         lines += StringFormat("%d) %s\n     signal: %s  (%s)\n", total, g_ind[i].name, sig, mark);
+         // har bir indikator alohida qatorda: nomi -> vazni -> signali -> bahosi
+         lines += StringFormat("%d) %s (vazn %.1f)\n     signal: %s  (%s)\n", total, g_ind[i].name, g_ind[i].weight, sig, mark);
         }
 
+      double wscore = (wTotal>0) ? (wAgree-wAgainst)/wTotal : 0;   // -1..+1
       string verdict;
-      if(against > agree)        verdict = "indikatorlar QARSHI";
-      else if(agree*2 >= total)  verdict = "indikatorlar MOS";
-      else                       verdict = "kuchsiz moslik";
+      if(wTotal<=0)             verdict = "indikator yoq";
+      else if(wscore <= -0.34)  verdict = StringFormat("indikatorlar QARSHI (vaznli skor %+.2f)", wscore);
+      else if(wscore >= 0.50)   verdict = StringFormat("indikatorlar KUCHLI MOS (vaznli skor %+.2f)", wscore);
+      else if(wscore > 0)       verdict = StringFormat("indikatorlar MOS (vaznli skor %+.2f)", wscore);
+      else                      verdict = StringFormat("kuchsiz moslik (vaznli skor %+.2f)", wscore);
 
       TradeRec rec;
-      rec.posId=posId; rec.dir=dir; rec.agree=agree; rec.total=total;
+      rec.posId=posId; rec.dir=dir; rec.agree=agree; rec.total=total; rec.wscore=wscore;
+      for(int i=0;i<4;i++) rec.votes[i]=votes[i];
       rec.price=price; rec.time=TimeCurrent();
       rec.detail=StringFormat("tasdiq: %s| qarshi: %s| neytral: %s",
                  (okList=="" ? "yoq " : okList), (badList=="" ? "yoq " : badList),
@@ -533,6 +602,20 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       if(agree>=0 && agree<5)
         {
          s_cnt[agree]++; s_sum[agree]+=net; if(net>=0) s_win[agree]++;
+        }
+      if(net>=0) g_grossWin+=net; else g_grossLoss+=-net;
+      if(idx>=0)
+        {
+         int dir = g_rec[idx].dir;
+         for(int i=0;i<4;i++)
+           {
+            if(!g_ind[i].use) continue;
+            int v = g_rec[idx].votes[i];
+            if(v==dir)
+              { s_indAgrCnt[i]++; s_indAgrSum[i]+=net; if(net>=0) s_indAgrWin[i]++; }
+            else if(v==-dir)
+              { s_indAgnCnt[i]++; s_indAgnSum[i]+=net; if(net>=0) s_indAgnWin[i]++; }
+           }
         }
       string stat = "";
       if(s_cnt[agree]>0)
@@ -711,6 +794,7 @@ void SendKeyboard(const string text)
                "[\"TP 10\",\"TP 30\",\"TP 50\"],"
                "[\"BUY larni yopish\",\"SELL larni yopish\"],"
                "[\"Hammasini yopish\"],"
+               "[\"Hisobot\"],"
                "[\"Averaging ON\",\"Averaging OFF\",\"Yordam\"]"
                "],\"resize_keyboard\":true,\"is_persistent\":true}";
    string url = "https://api.telegram.org/bot"+InpBotToken+"/sendMessage?chat_id="+InpChatId+
@@ -736,6 +820,9 @@ void RegisterCommands()
    json += "{\"command\":\"add_on\",\"description\":\"Averagingni yoqish\"},";
    json += "{\"command\":\"add_off\",\"description\":\"Averagingni ochirish\"},";
    json += "{\"command\":\"list\",\"description\":\"Pozitsiyalar va natijalar\"},";
+   json += "{\"command\":\"report\",\"description\":\"Statistika hisoboti\"},";
+   json += "{\"command\":\"mute\",\"description\":\"Xabarlarni vaqtincha ochirish\"},";
+   json += "{\"command\":\"unmute\",\"description\":\"Xabarlarni qayta yoqish\"},";
    json += "{\"command\":\"menu\",\"description\":\"Tugmalar paneli\"},";
    json += "{\"command\":\"help\",\"description\":\"Buyruqlar royxati\"}]";
 
@@ -903,6 +990,7 @@ string NormalizeCmd(string t)
    if(StringFind(t,"/")==0) return(t);                       // allaqachon buyruq
 
    if(StringFind(t,"holat")>=0)            return("/status");
+   if(StringFind(t,"hisobot")>=0)          return("/report");
    if(StringFind(t,"pozitsiya")>=0)        return("/list");
    if(StringFind(t,"skrinshot")>=0)        return("/shot");
    if(StringFind(t,"yordam")>=0)           return("/help");
@@ -949,6 +1037,9 @@ void HandleCmd(string raw)
                     _Symbol, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES)), true);
      }
    else if(StringFind(cmd,"/list")==0 || StringFind(cmd,"/positions")==0) SendPositions();
+   else if(StringFind(cmd,"/report")==0)     Send(BuildReport());
+   else if(StringFind(cmd,"/unmute")==0)     { g_muted=false; Send("Xabarlar qayta yoqildi."); }
+   else if(StringFind(cmd,"/mute")==0)       { Send("Xabarlar vaqtincha ochirildi. /unmute bilan qayta yoqasiz."); g_muted=true; }
    else if(StringFind(cmd,"/close_buy")==0)  ManualClose( 1);
    else if(StringFind(cmd,"/close_sell")==0) ManualClose(-1);
    else if(StringFind(cmd,"/close_all")==0)  ManualClose( 0);
@@ -957,7 +1048,24 @@ void HandleCmd(string raw)
    else if(StringFind(cmd,"/menu")==0)
       SendKeyboard("Tugmalar paneli yangilandi");
    else if(StringFind(cmd,"/help")==0 || StringFind(cmd,"/start")==0)
-      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/add_on, /add_off - averaging\n/menu - panelni qayta chizish");
+      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/report - statistika hisoboti\n/mute, /unmute - xabarlarni vaqtincha ochirish/yoqish\n/add_on, /add_off - averaging\n/menu - panelni qayta chizish");
+  }
+
+// Update blokidan "chat":{"id":N...} ni ajratib oladi. Topilmasa 0 qaytaradi.
+long ExtractChatId(const string &ans, const int from, const int to)
+  {
+   int p = StringFind(ans, "\"chat\":{\"id\":", from);
+   if(p<0 || (to>=0 && p>=to)) return(0);
+   p += 13;
+   int e = p, len = StringLen(ans);
+   while(e<len)
+     {
+      ushort ch = StringGetCharacter(ans, e);
+      if((ch>='0' && ch<='9') || ch=='-') e++;
+      else break;
+     }
+   if(e<=p) return(0);
+   return(StringToInteger(StringSubstr(ans, p, e-p)));
   }
 
 void PollTelegram()
@@ -968,6 +1076,7 @@ void PollTelegram()
    char d[], r[]; string rh="";
    if(WebRequest("GET", url, "", 7000, d, r, rh) != 200) return;
    string ans = CharArrayToString(r, 0, WHOLE_ARRAY, CP_UTF8);
+   long cfgChat = StringToInteger(InpChatId);
 
    int pos=0;
    while(true)
@@ -978,10 +1087,23 @@ void PollTelegram()
       if(ide<0) break;
       long uid = StringToInteger(StringSubstr(ans, ids, ide-ids));
       if(uid>g_tgOffset) g_tgOffset=uid;
+
+      int nxu = StringFind(ans, "\"update_id\":", iu+5);
+      int blockEnd = (nxu<0) ? StringLen(ans) : nxu;
+
+      // XAVFSIZLIK: faqat InpChatId dan kelgan buyruqlar bajariladi.
+      // Chat id topilmasa yoki mos kelmasa - butunlay e'tiborsiz qoldiriladi.
+      long cid = ExtractChatId(ans, iu, blockEnd);
+      if(cid != cfgChat)
+        {
+         PrintFormat("TELEGRAM: ruxsatsiz chat (%I64d) dan kelgan buyruq rad etildi", cid);
+         pos = iu+12;
+         continue;
+        }
+
       // inline tugma bosilgan bolsa
       int ic = StringFind(ans, "\"callback_query\"", iu);
-      int nx0 = StringFind(ans, "\"update_id\":", iu+5);
-      if(ic>=0 && (nx0<0 || ic<nx0))
+      if(ic>=0 && ic<blockEnd)
         {
          int ds = StringFind(ans, "\"data\":\"", ic);
          if(ds>=0)
@@ -1001,8 +1123,7 @@ void PollTelegram()
         }
 
       int it = StringFind(ans, "\"text\":\"", iu);
-      int nx = StringFind(ans, "\"update_id\":", iu+5);
-      if(it>=0 && (nx<0 || it<nx))
+      if(it>=0 && it<blockEnd)
         {
          int ts=it+8, te=StringFind(ans, "\"", ts);
          if(te>ts) HandleCmd(StringSubstr(ans, ts, te-ts));
