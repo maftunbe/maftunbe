@@ -720,6 +720,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       JournalWrite(StringFormat("OPEN;%s;%s;%.2f;%s;%d;%d;%s",
            TimeToString(TimeCurrent()), (dir>0?"BUY":"SELL"), vol,
            DoubleToString(price,_Digits), agree, total, rec.detail));
+      // Istalgan manbadan (botning ozi, boshqa EA - masalan FxCruiser, yoki qolda)
+      // ochilgan HAR BIR bitimga avto-TP / qayta-savdo bloki shu yerda qollaniladi
+      PostOpenActions((ulong)posId, dir, price);
       return;
      }
 
@@ -803,36 +806,6 @@ double NormLot(double lot)
    return(NormalizeDouble(lot,8));
   }
 
-// ---- Magic boyicha pozitsiya tiketlarini royxatlaydi ----
-int PosTicketsByMagic(const long magic, ulong &out[])
-  {
-   ArrayResize(out,0);
-   for(int i=PositionsTotal()-1; i>=0; i--)
-     {
-      ulong t = PositionGetTicket(i);
-      if(t==0) continue;
-      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
-      if(PositionGetInteger(POSITION_MAGIC)!=magic) continue;
-      int n=ArraySize(out); ArrayResize(out,n+1); out[n]=t;
-     }
-   return(ArraySize(out));
-  }
-
-// Shu magic bilan ochilgan eng yangi (eng katta tiketli) pozitsiya
-ulong NewestPosition(const long magic)
-  {
-   ulong best=0;
-   for(int i=PositionsTotal()-1; i>=0; i--)
-     {
-      ulong t = PositionGetTicket(i);
-      if(t==0) continue;
-      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
-      if(PositionGetInteger(POSITION_MAGIC)!=magic) continue;
-      if(t>best) best=t;
-     }
-   return(best);
-  }
-
 //================== ZARAR BOSQICHLARI XABARI =======================//
 int FindLossAlert(const ulong ticket)
   {
@@ -885,11 +858,11 @@ void CheckLossAlerts()
   }
 
 //====== AVTOMATIK TP + BIR NARXDA QAYTA SAVDO QILMASLIK (ochish payti) ======//
-// Botning ozi ochgan eng yangi bitimga qollaniladi: avval "qayta savdo" xotirasi
-// tekshiriladi (mos kelsa - darhol yopiladi, TP qoyilmaydi), aks holda InpAutoTP qoyiladi.
-void PostOpenActions(const int dir, const double openPrice)
+// Har QANDAY yangi ochilgan bitimga (botning ozi, boshqa EA, yoki qolda ochilgan -
+// hammasiga) qollaniladi: avval "qayta savdo" xotirasi tekshiriladi (mos kelsa -
+// darhol yopiladi, TP qoyilmaydi), aks holda InpAutoTP qoyiladi.
+void PostOpenActions(const ulong t, const int dir, const double openPrice)
   {
-   ulong t = NewestPosition(EA_MAGIC);
    if(t==0) return;
 
    if(InpNoRetradeEnable)
@@ -921,14 +894,15 @@ void PostOpenActions(const int dir, const double openPrice)
   }
 
 //========================= REVERSE (TESKARI BITIM) =========================//
-// Botning ozi ochgan bitimini, FAQAT barcha yoqilgan indikator unga qarshi
-// bolgandagina yopib, aynan shu lot bilan teskari yonalishda qayta ochadi.
+// Istalgan ochiq bitimni (botning ozi, boshqa EA, yoki qolda ochilgan - hammasi)
+// FAQAT barcha yoqilgan indikator unga qarshi bolgandagina yopib, aynan shu lot
+// bilan teskari yonalishda qayta ochadi (yangi bitim SniperBotPro magic'i bilan).
 void CheckReverse()
   {
    if(!InpReverseEnable) return;
    if(TimeCurrent()-g_lastReverse < InpReversePauseSec) return;
 
-   ulong list[]; int n = PosTicketsByMagic(EA_MAGIC, list);
+   ulong list[]; int n = PosTickets(list);
    for(int i=0; i<n; i++)
      {
       if(!PositionSelectByTicket(list[i])) continue;
@@ -963,7 +937,7 @@ void CheckReverse()
         {
          double price = g_trade.ResultPrice();
          Send(StringFormat("REVERSE: %s %.2f lot @ %s ochildi", (rdir>0?"BUY":"SELL"), lot, DoubleToString(price,_Digits)));
-         PostOpenActions(rdir, price);
+         // Avto-TP/qayta-savdo tekshiruvi OnTradeTransaction'da markazlashtirilgan
         }
       else
          Send(StringFormat("REVERSE: teskari bitim ochilmadi: %d - %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
@@ -1013,7 +987,7 @@ void CheckAveraging()
          g_lastAdd = TimeCurrent();
          Send(StringFormat("QOSHIMCHA BITIM: %s %.2f lot\nSuzuvchi zarar: %.2f USD\nQoshimchalar: %d/%d\nJami lot: %.2f",
               (dir>0?"BUY":"SELL"), lot, pl, (dir>0?g_addsBuy:g_addsSell), InpMaxAdds, lots+lot));
-         PostOpenActions(dir, g_trade.ResultPrice());
+         // Avto-TP/qayta-savdo tekshiruvi OnTradeTransaction'da markazlashtirilgan
         }
       else
          PrintFormat("Qoshimcha bitim ochilmadi: %d %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
@@ -1161,7 +1135,7 @@ void ManualTrade(const int dir, double lot)
            (dir>0?"BUY":"SELL"), lot, DoubleToString(entry,_Digits),
            (sl>0 ? "  SL "+DoubleToString(sl,_Digits) : ""),
            (tp>0 ? "  TP "+DoubleToString(tp,_Digits) : "")));
-      PostOpenActions(dir, g_trade.ResultPrice());
+      // Avto-TP/qayta-savdo tekshiruvi OnTradeTransaction'da markazlashtirilgan - shu yerda qaytarilmaydi
      }
    else
       Send(StringFormat("Bitim ochilmadi: %d - %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
