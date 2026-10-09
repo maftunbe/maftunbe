@@ -11,13 +11,19 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeSupervisor"
 #include <Trade\Trade.mqh>
-#property version   "2.60"
+#property version   "2.70"
 
 enum EIndMode
   {
    MODE_DIR    = 0,   // Bufer: +1 osish / -1 tushish (TrendMatrix, SuperTrend)
    MODE_ARROWS = 1,   // Ikki bufer: BUY va SELL strelkalari
    MODE_LEVEL  = 2    // Ossillyator: yuqori va quyi chegara
+  };
+
+enum EAIProvider
+  {
+   AI_ANTHROPIC = 0,  // api.anthropic.com/v1/messages
+   AI_OPENAI    = 1   // api.openai.com/v1/chat/completions (OpenAI-moslashgan boshqa provayderlar ham)
   };
 
 //============================= INPUTS ==============================//
@@ -88,6 +94,20 @@ input double InpMaxManualLot= 5.0;     // Bitta buyruqda maksimal lot
 input double InpManualSLATR = 0;       // SL (ATR x). 0 = SL qoyilmaydi
 input double InpManualTPATR = 0;       // TP (ATR x). 0 = TP qoyilmaydi
 
+input group "=== Moslashuvchan vaznlar ==="
+input bool   InpAdaptive       = false;  // Indikator vaznini ozining tarixiy aniqligiga qarab avtomatik moslashtirish
+input int    InpAdaptMinTrades = 10;     // Vazn ozgarishi uchun kamida shuncha "mos kelgan" savdo kerak
+input double InpAdaptSensitivity=1.0;    // Moslashish kuchi (0 = ozgarmaydi, 1 = normal, 2 = kuchli)
+input double InpAdaptMinMult   = 0.2;    // Minimal multiplikator (asl vaznga nisbatan)
+input double InpAdaptMaxMult   = 2.0;    // Maksimal multiplikator (asl vaznga nisbatan)
+
+input group "=== AI tahlili (ixtiyoriy, pullik API) ==="
+input bool        InpUseAI     = false;  // Savdo ochilganda AI'dan qisqa izoh sorash
+input EAIProvider  InpAIProvider = AI_ANTHROPIC;  // AI provayderi
+input string       InpAIApiKey  = "";    // API kalit. Bu yerga yozmang - EA sozlamalarida kiriting!
+input string       InpAIModel   = "";    // Model nomi (masalan: claude-3-5-haiku-20241022 yoki gpt-4o-mini)
+input string       InpAIUrl     = "";    // Maxsus URL (bosh = provayderning standart manzili)
+
 input group "=== Chart skrinshoti ==="
 input bool     InpSendShot   = true;   // Savdo ochilganda chart rasmini yuborish
 input bool     InpShotOnClose= false;  // Savdo yopilganda ham rasm yuborish
@@ -108,7 +128,8 @@ struct IndSlot
    EIndMode mode;
    int      bufA, bufB;
    double   hi, lo;
-   double   weight;      // ovoz salmogi (vaznli XULOSA uchun)
+   double   weight;      // joriy (moslashgan bolishi mumkin) ovoz salmogi
+   double   baseWeight;  // InpWeightN - foydalanuvchi bergan asl vazn
    int      handle;
    int      vote;        // oxirgi hisoblangan ovoz
   };
@@ -160,7 +181,8 @@ void SetSlot(const int i, const bool use, const string name, const EIndMode m,
   {
    g_ind[i].use=use; g_ind[i].name=name; g_ind[i].mode=m;
    g_ind[i].bufA=a; g_ind[i].bufB=b; g_ind[i].hi=hi; g_ind[i].lo=lo;
-   g_ind[i].weight = (weight>0 ? weight : 1.0);
+   g_ind[i].baseWeight = (weight>0 ? weight : 1.0);
+   g_ind[i].weight = g_ind[i].baseWeight;
    g_ind[i].handle=INVALID_HANDLE; g_ind[i].vote=0;
   }
 
@@ -405,6 +427,18 @@ string VoteText(const int v)
    return("neytral");
   }
 
+// Indikatorning "mos kelganda"gi haqiqiy WR'iga qarab vaznini qayta hisoblaydi.
+// Yetarli namuna bolmaguncha (InpAdaptMinTrades) asl vazn (baseWeight) saqlanadi.
+void RecalcWeight(const int i)
+  {
+   if(!InpAdaptive || s_indAgrCnt[i] < InpAdaptMinTrades)
+     { g_ind[i].weight = g_ind[i].baseWeight; return; }
+   double wr   = (double)s_indAgrWin[i]/s_indAgrCnt[i];              // 0..1
+   double mult = 1.0 + (wr-0.5)*2.0*InpAdaptSensitivity;             // wr=0.5 -> 1.0
+   mult = MathMax(InpAdaptMinMult, MathMin(InpAdaptMaxMult, mult));
+   g_ind[i].weight = g_ind[i].baseWeight * mult;
+  }
+
 //========================== JURNAL =================================//
 void JournalWrite(const string line)
   {
@@ -445,7 +479,10 @@ string BuildReport()
    for(int i=0;i<4;i++)
      {
       if(!g_ind[i].use) continue;
-      t += g_ind[i].name+" (vazn "+DoubleToString(g_ind[i].weight,1)+"):\n";
+      string wtxt = (MathAbs(g_ind[i].weight-g_ind[i].baseWeight)>0.001)
+                    ? StringFormat("joriy vazn %.2f, asl %.2f", g_ind[i].weight, g_ind[i].baseWeight)
+                    : StringFormat("vazn %.2f", g_ind[i].weight);
+      t += g_ind[i].name+" ("+wtxt+"):\n";
       if(s_indAgrCnt[i]>0)
          t += StringFormat("  mos kelganda:  %d savdo, WR %.0f%%, %+.2f\n",
               s_indAgrCnt[i], 100.0*s_indAgrWin[i]/s_indAgrCnt[i], s_indAgrSum[i]);
@@ -582,6 +619,18 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       string msg = StringFormat("EA %s ochdi %.2f lot @ %s\n----- INDIKATORLAR -----\n%s-----------------------\nXULOSA: %d tasdiq, %d qarshi, %d signalsiz\n%s",
                    dirTxt, vol, DoubleToString(price,_Digits), lines,
                    agree, against, neutral, verdict);
+
+      if(InpUseAI)
+        {
+         string aiPrompt = StringFormat(
+              "Savdo %s %s %.2f lot @ %s ochildi. %d indikatordan %d tasi tasdiqladi, %d qarshi, "+
+              "%d signalsiz, vaznli skor %.2f (-1 kuchli qarshi, +1 kuchli mos). Tafsilot: %s\n"+
+              "Faqat 2-3 jumlada, shu savdoning e'tiborga olish kerak bolgan riski yoki jihati haqida "+
+              "qisqa, aniq izoh ber. Savdoni ochish yoki yopish haqida buyruq berma - faqat izoh.",
+              _Symbol, dirTxt, vol, DoubleToString(price,_Digits), total, agree, against, neutral, wscore, rec.detail);
+         string aiNote = AskAI(aiPrompt);
+         if(aiNote!="") msg += "\n\n--- AI IZOHI ---\n"+aiNote;
+        }
       Send(msg);
       SendChartShot(msg);
       JournalWrite(StringFormat("OPEN;%s;%s;%.2f;%s;%d;%d;%s",
@@ -615,6 +664,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
               { s_indAgrCnt[i]++; s_indAgrSum[i]+=net; if(net>=0) s_indAgrWin[i]++; }
             else if(v==-dir)
               { s_indAgnCnt[i]++; s_indAgnSum[i]+=net; if(net>=0) s_indAgnWin[i]++; }
+            RecalcWeight(i);
            }
         }
       string stat = "";
@@ -710,6 +760,97 @@ void CheckAveraging()
       else
          PrintFormat("Qoshimcha bitim ochilmadi: %d %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
      }
+  }
+
+//============================ AI TAHLILI ============================//
+// JSON matn ichiga xavfsiz joylash uchun maxsus belgilarni escape qiladi
+string JsonEscape(const string s)
+  {
+   string r = s;
+   StringReplace(r, "\\", "\\\\");
+   StringReplace(r, "\"", "\\\"");
+   StringReplace(r, "\r", "");
+   StringReplace(r, "\n", "\\n");
+   StringReplace(r, "\t", " ");
+   return(r);
+  }
+
+// JSON javobidan "key":"qiymat" korinishidagi matnni ajratib oladi (\n, \", \\ ni qayta tiklaydi)
+string ExtractJsonString(const string &json, const string &key)
+  {
+   string pat = "\""+key+"\":\"";
+   int p = StringFind(json, pat);
+   if(p<0) return("");
+   p += StringLen(pat);
+   int n = StringLen(json);
+   string out="";
+   while(p<n)
+     {
+      ushort c = StringGetCharacter(json, p);
+      if(c=='\\' && p+1<n)
+        {
+         ushort c2 = StringGetCharacter(json, p+1);
+         if(c2=='n')       out += "\n";
+         else if(c2=='"')  out += "\"";
+         else if(c2=='\\') out += "\\";
+         else               out += CharToString((uchar)c2);
+         p += 2;
+         continue;
+        }
+      if(c=='"') break;
+      out += CharToString((uchar)c);
+      p++;
+     }
+   return(out);
+  }
+
+// LLM (Claude yoki OpenAI-moslashgan) API'ga savol yuboradi, qisqa matn javob qaytaradi.
+// Xato bolsa yoki sozlanmagan bolsa - bosh satr qaytaradi (chaqiruvchi shunga qarab oladi).
+string AskAI(const string prompt)
+  {
+   if(!InpUseAI) return("");
+   if(StringLen(InpAIApiKey)<10) { Print("AI: API kalit kiritilmagan (InpAIApiKey)"); return(""); }
+   if(StringLen(InpAIModel)<2)   { Print("AI: model nomi kiritilmagan (InpAIModel)"); return(""); }
+
+   string url, hdr, body;
+   string esc = JsonEscape(prompt);
+
+   if(InpAIProvider==AI_ANTHROPIC)
+     {
+      url = (StringLen(InpAIUrl)>0) ? InpAIUrl : "https://api.anthropic.com/v1/messages";
+      hdr = "content-type: application/json\r\nx-api-key: "+InpAIApiKey+"\r\nanthropic-version: 2023-06-01\r\n";
+      body = StringFormat("{\"model\":\"%s\",\"max_tokens\":220,\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}]}",
+             InpAIModel, esc);
+     }
+   else
+     {
+      url = (StringLen(InpAIUrl)>0) ? InpAIUrl : "https://api.openai.com/v1/chat/completions";
+      hdr = "content-type: application/json\r\nAuthorization: Bearer "+InpAIApiKey+"\r\n";
+      body = StringFormat("{\"model\":\"%s\",\"max_tokens\":220,\"messages\":[{\"role\":\"user\",\"content\":\"%s\"}]}",
+             InpAIModel, esc);
+     }
+
+   char reqBody[]; ArrayResize(reqBody,0);
+   AppendStr(reqBody, body);
+   char res[]; string rh="";
+   ResetLastError();
+   int code = WebRequest("POST", url, hdr, 20000, reqBody, res, rh);
+   if(code==-1)
+     {
+      int err = GetLastError();
+      if(err==4014) PrintFormat("AI: WebRequest ruxsati yoq. Ekspertlar sozlamalarida %s ni royxatga qoshing.", url);
+      else          PrintFormat("AI: WebRequest xatosi %d", err);
+      return("");
+     }
+   string resp = CharArrayToString(res, 0, WHOLE_ARRAY, CP_UTF8);
+   if(code!=200)
+     {
+      PrintFormat("AI: javob kodi %d: %s", code, resp);
+      return("");
+     }
+   string text = (InpAIProvider==AI_ANTHROPIC) ? ExtractJsonString(resp,"text") : ExtractJsonString(resp,"content");
+   if(text=="") PrintFormat("AI: javobni ajratib bolmadi: %s", resp);
+   return(text);
   }
 
 //==================== TELEGRAM BUYRUQLARI ==========================//
@@ -821,6 +962,7 @@ void RegisterCommands()
    json += "{\"command\":\"add_off\",\"description\":\"Averagingni ochirish\"},";
    json += "{\"command\":\"list\",\"description\":\"Pozitsiyalar va natijalar\"},";
    json += "{\"command\":\"report\",\"description\":\"Statistika hisoboti\"},";
+   json += "{\"command\":\"ai\",\"description\":\"AI dan savol sorash (/ai savol)\"},";
    json += "{\"command\":\"mute\",\"description\":\"Xabarlarni vaqtincha ochirish\"},";
    json += "{\"command\":\"unmute\",\"description\":\"Xabarlarni qayta yoqish\"},";
    json += "{\"command\":\"menu\",\"description\":\"Tugmalar paneli\"},";
@@ -1038,6 +1180,21 @@ void HandleCmd(string raw)
      }
    else if(StringFind(cmd,"/list")==0 || StringFind(cmd,"/positions")==0) SendPositions();
    else if(StringFind(cmd,"/report")==0)     Send(BuildReport());
+   else if(StringFind(cmd,"/ai")==0)
+     {
+      if(!InpUseAI) { Send("AI ochirilgan. EA sozlamalarida InpUseAI ni yoqing."); }
+      else
+        {
+         int sp = StringFind(cmd," ");
+         string question = (sp>=0) ? StringSubstr(cmd,sp+1) : "Joriy savdo holatini qisqacha tahlil qil.";
+         double plB,lotB,llB, plS,lotS,llS; int cB,cS;
+         DirInfo(1,plB,lotB,cB,llB); DirInfo(-1,plS,lotS,cS,llS);
+         string ctx = StringFormat("%s grafigi. Ochiq: BUY %d ta (%.2f lot, %+.2f), SELL %d ta (%.2f lot, %+.2f). Savol: %s",
+                      _Symbol, cB,lotB,plB, cS,lotS,plS, question);
+         string ans = AskAI(ctx);
+         Send(ans!="" ? ans : "AI javob bera olmadi. Sozlamalarni (API kalit, model) tekshiring.");
+        }
+     }
    else if(StringFind(cmd,"/unmute")==0)     { g_muted=false; Send("Xabarlar qayta yoqildi."); }
    else if(StringFind(cmd,"/mute")==0)       { Send("Xabarlar vaqtincha ochirildi. /unmute bilan qayta yoqasiz."); g_muted=true; }
    else if(StringFind(cmd,"/close_buy")==0)  ManualClose( 1);
@@ -1048,7 +1205,7 @@ void HandleCmd(string raw)
    else if(StringFind(cmd,"/menu")==0)
       SendKeyboard("Tugmalar paneli yangilandi");
    else if(StringFind(cmd,"/help")==0 || StringFind(cmd,"/start")==0)
-      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/report - statistika hisoboti\n/mute, /unmute - xabarlarni vaqtincha ochirish/yoqish\n/add_on, /add_off - averaging\n/menu - panelni qayta chizish");
+      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/report - statistika hisoboti\n/ai savol - AI'dan savol sorash (InpUseAI yoqilgan bolsa)\n/mute, /unmute - xabarlarni vaqtincha ochirish/yoqish\n/add_on, /add_off - averaging\n/menu - panelni qayta chizish");
   }
 
 // Update blokidan "chat":{"id":N...} ni ajratib oladi. Topilmasa 0 qaytaradi.
