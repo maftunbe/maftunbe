@@ -11,7 +11,8 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "2.80"
+#property version   "2.90"
+#define EA_MAGIC 777001
 
 enum EIndMode
   {
@@ -69,6 +70,7 @@ input double   InpExtremeLo = 20.0;    // Shundan pastda SELL berilmaydi
 input double   InpWeight4   = 1.0;     // Vazn (ovoz salmogi)
 
 input group "=== Umumiy ==="
+input bool     InpShowOnChart= true;   // Barcha ishlatilayotgan indikatorlarni chartda korsatish (avtomatik)
 input int      InpLookback   = 3;      // ARROWS rejimi: signal necha bar ichida bolgani hisoblansin
 input long     InpMagicWatch = -1;     // Faqat shu magic (-1 = hamma savdolar)
 input bool     InpUsePush    = true;   // MT5 mobilga push
@@ -77,6 +79,23 @@ input bool     InpUseTelegram= true;   // Telegram xabarlari
 input string   InpBotToken   = "";  // Telegram bot tokeni (BotFather'dan). Bu yerga yozmang - EA sozlamalarida kiriting!
 input string   InpChatId     = "";        // Telegram chat id
 input bool     InpJournal    = true;   // CSV jurnal (MQL5\\Files)
+
+input group "=== Zarar bosqichlari xabari ==="
+input bool   InpLossAlertEnable = true;   // Zarar qoyilgan qadamda bir martadan xabar ber
+input double InpLossStep        = 10.0;   // Har necha USD zararda bir xabar
+input double InpLossMax         = 150.0;  // Shu summagacha (10,20,...150 - 15 daraja)
+
+input group "=== Avtomatik TP (botning ozi ochgan bitimlariga) ==="
+input bool   InpAutoTPEnable    = true;   // Har bir bitimga avtomatik TP qoyish
+input double InpAutoTP          = 9.0;    // TP qiymati (USD foyda)
+
+input group "=== Bir narxda qayta savdo qilmaslik ==="
+input bool   InpNoRetradeEnable = true;   // Foyda bilan yopilgan narxda qayta ochilgan (bot) bitimni darhol yopish
+input int    InpNoRetradePoints = 5;      // Tolerans (punkt)
+
+input group "=== Reverse (teskari bitim) - EHTIYOT BOLING ==="
+input bool   InpReverseEnable   = false;  // Barcha indikator qarshi bolsa, botning bitimini yopib teskarisini ochish
+input int    InpReversePauseSec = 60;     // Ikki reverse orasidagi min vaqt (soniya)
 
 input group "=== Qoshimcha bitim (averaging) - EHTIYOT BOLING ==="
 input bool   InpAddEnable   = false;   // Zarardagi savdoga qoshimcha ochish
@@ -166,6 +185,14 @@ long     g_tgOffset   = 0;
 ulong    g_seen[];                 // qayta ishlangan bitimlar (takrorlanmasligi uchun)
 int      h_rviMain = INVALID_HANDLE, h_stoch4 = INVALID_HANDLE;   // Indikator 4: ichki RVI+Stochastic
 
+struct LossAlertRec { ulong ticket; int level; };
+LossAlertRec g_lossAlert[];         // har pozitsiya uchun oxirgi xabar berilgan zarar darajasi
+
+struct NoRetradeRec { double price; int dir; };
+NoRetradeRec g_noRetrade[];         // foyda bilan yopilgan narx+yonalish (kun oxirigacha)
+
+datetime g_lastReverse = 0;
+
 bool AlreadySeen(const ulong deal)
   {
    for(int i=ArraySize(g_seen)-1; i>=0; i--) if(g_seen[i]==deal) return(true);
@@ -222,6 +249,24 @@ int OnInit()
      }
    if(ok==0) { Print("Birorta indikator yuklanmadi"); return(INIT_FAILED); }
 
+   //--- ishlatilayotgan indikatorlarni chartda ham korsatamiz (EA ozi uchun ulaganlariga qoshimcha)
+   if(InpShowOnChart)
+     {
+      if(g_ind[0].use && g_ind[0].handle!=INVALID_HANDLE)
+         ChartIndicatorAdd(0, 0, g_ind[0].handle);                       // asosiy grafikka (narx bilan birga)
+      int win = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
+      if(g_ind[1].use && g_ind[1].handle!=INVALID_HANDLE)
+        { ChartIndicatorAdd(0, win, g_ind[1].handle); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); }
+      if(g_ind[2].use && g_ind[2].handle!=INVALID_HANDLE)
+        { ChartIndicatorAdd(0, win, g_ind[2].handle); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); }
+      if(g_ind[3].use)
+        {
+         ChartIndicatorAdd(0, win, h_rviMain);
+         ChartIndicatorAdd(0, win, h_stoch4);
+        }
+      ChartRedraw(0);
+     }
+
    if(InpUseTelegram)
      {
       if(StringFind(InpBotToken,"BU_YERGA")>=0 || StringFind(InpChatId,"BU_YERGA")>=0 ||
@@ -238,7 +283,7 @@ int OnInit()
    ArrayInitialize(s_indAgrCnt,0); ArrayInitialize(s_indAgrWin,0); ArrayInitialize(s_indAgrSum,0.0);
    ArrayInitialize(s_indAgnCnt,0); ArrayInitialize(s_indAgnWin,0); ArrayInitialize(s_indAgnSum,0.0);
    g_grossWin=0; g_grossLoss=0; g_muted=false;
-   g_trade.SetExpertMagicNumber(777001);
+   g_trade.SetExpertMagicNumber(EA_MAGIC);
    g_trade.SetTypeFillingBySymbol(_Symbol);
    g_addOn = InpAddEnable;
    MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
@@ -684,7 +729,13 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       double net = HistoryDealGetDouble(trans.deal, DEAL_PROFIT)
                  + HistoryDealGetDouble(trans.deal, DEAL_SWAP)
                  + HistoryDealGetDouble(trans.deal, DEAL_COMMISSION);
+      RemoveLossAlert((ulong)posId);
       int idx = FindRec(posId);
+      if(InpNoRetradeEnable && net>0 && idx>=0)
+        {
+         int rn=ArraySize(g_noRetrade); ArrayResize(g_noRetrade, rn+1);
+         g_noRetrade[rn].price=g_rec[idx].price; g_noRetrade[rn].dir=g_rec[idx].dir;
+        }
       int agree = (idx>=0) ? g_rec[idx].agree : 0;
       int total = (idx>=0) ? g_rec[idx].total : 0;
       if(agree>=0 && agree<5)
@@ -752,6 +803,173 @@ double NormLot(double lot)
    return(NormalizeDouble(lot,8));
   }
 
+// ---- Magic boyicha pozitsiya tiketlarini royxatlaydi ----
+int PosTicketsByMagic(const long magic, ulong &out[])
+  {
+   ArrayResize(out,0);
+   for(int i=PositionsTotal()-1; i>=0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=magic) continue;
+      int n=ArraySize(out); ArrayResize(out,n+1); out[n]=t;
+     }
+   return(ArraySize(out));
+  }
+
+// Shu magic bilan ochilgan eng yangi (eng katta tiketli) pozitsiya
+ulong NewestPosition(const long magic)
+  {
+   ulong best=0;
+   for(int i=PositionsTotal()-1; i>=0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC)!=magic) continue;
+      if(t>best) best=t;
+     }
+   return(best);
+  }
+
+//================== ZARAR BOSQICHLARI XABARI =======================//
+int FindLossAlert(const ulong ticket)
+  {
+   for(int i=ArraySize(g_lossAlert)-1; i>=0; i--) if(g_lossAlert[i].ticket==ticket) return(i);
+   return(-1);
+  }
+
+void RemoveLossAlert(const ulong ticket)
+  {
+   int idx = FindLossAlert(ticket);
+   if(idx<0) return;
+   int n = ArraySize(g_lossAlert);
+   for(int i=idx; i<n-1; i++) g_lossAlert[i]=g_lossAlert[i+1];
+   ArrayResize(g_lossAlert, n-1);
+  }
+
+// Har ochiq pozitsiyaning zararini kuzatadi, har InpLossStep (masalan 10$) da
+// InpLossMax (150$) gacha - har bosqich uchun bir marta xabar beradi.
+void CheckLossAlerts()
+  {
+   if(!InpLossAlertEnable || InpLossStep<=0) return;
+   int maxLevel = (int)MathRound(InpLossMax/InpLossStep);
+
+   for(int i=PositionsTotal()-1; i>=0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t==0) continue;
+      if(PositionGetString(POSITION_SYMBOL)!=_Symbol) continue;
+
+      double pl = PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
+      if(pl>=0) continue;   // faqat zararda
+
+      int level = (int)MathFloor(-pl/InpLossStep);
+      if(level>maxLevel) level=maxLevel;
+      if(level<=0) continue;
+
+      int idx = FindLossAlert(t);
+      int last = (idx>=0) ? g_lossAlert[idx].level : 0;
+      if(level<=last) continue;
+
+      for(int lv=last+1; lv<=level; lv++)
+        {
+         double threshold = lv*InpLossStep;
+         Send(StringFormat("ZARAR OGOHLANTIRISHI: pozitsiya #%d, zarar -%.0f USD ga yetdi (%.0f/%.0f)",
+              (int)t, threshold, threshold, InpLossMax));
+        }
+      if(idx>=0) g_lossAlert[idx].level=level;
+      else { int n=ArraySize(g_lossAlert); ArrayResize(g_lossAlert,n+1); g_lossAlert[n].ticket=t; g_lossAlert[n].level=level; }
+     }
+  }
+
+//====== AVTOMATIK TP + BIR NARXDA QAYTA SAVDO QILMASLIK (ochish payti) ======//
+// Botning ozi ochgan eng yangi bitimga qollaniladi: avval "qayta savdo" xotirasi
+// tekshiriladi (mos kelsa - darhol yopiladi, TP qoyilmaydi), aks holda InpAutoTP qoyiladi.
+void PostOpenActions(const int dir, const double openPrice)
+  {
+   ulong t = NewestPosition(EA_MAGIC);
+   if(t==0) return;
+
+   if(InpNoRetradeEnable)
+     {
+      double tol = InpNoRetradePoints*_Point;
+      for(int i=ArraySize(g_noRetrade)-1; i>=0; i--)
+        {
+         if(g_noRetrade[i].dir!=dir) continue;
+         if(MathAbs(openPrice-g_noRetrade[i].price)>tol) continue;
+
+         double pl=0;
+         if(PositionSelectByTicket(t)) pl = PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
+         if(g_trade.PositionClose(t))
+            Send(StringFormat("QAYTA SAVDO BLOKI: %s %s narxida avval foyda bilan yopilgan edi - darhol yopildi (natija %+.2f)",
+                 (dir>0?"BUY":"SELL"), DoubleToString(openPrice,_Digits), pl));
+         else
+            PrintFormat("QAYTA SAVDO BLOKI: pozitsiya yopilmadi #%d: %d %s",
+                 (int)t, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+         return;   // bitim yopildi - TP qoyish kerak emas
+        }
+     }
+
+   if(InpAutoTPEnable)
+     {
+      string info;
+      if(!SetTpMoney(t, InpAutoTP, info))
+         PrintFormat("AVTO-TP qoyilmadi #%d: %s", (int)t, info);
+     }
+  }
+
+//========================= REVERSE (TESKARI BITIM) =========================//
+// Botning ozi ochgan bitimini, FAQAT barcha yoqilgan indikator unga qarshi
+// bolgandagina yopib, aynan shu lot bilan teskari yonalishda qayta ochadi.
+void CheckReverse()
+  {
+   if(!InpReverseEnable) return;
+   if(TimeCurrent()-g_lastReverse < InpReversePauseSec) return;
+
+   ulong list[]; int n = PosTicketsByMagic(EA_MAGIC, list);
+   for(int i=0; i<n; i++)
+     {
+      if(!PositionSelectByTicket(list[i])) continue;
+      long ty  = PositionGetInteger(POSITION_TYPE);
+      int  dir = (ty==POSITION_TYPE_BUY) ? 1 : -1;
+
+      bool allAgainst=true; int activeCount=0;
+      for(int k=0; k<4; k++)
+        {
+         if(!g_ind[k].use) continue;
+         activeCount++;
+         if(AskIndicator(k)!=-dir) { allAgainst=false; break; }
+        }
+      if(!allAgainst || activeCount==0) continue;
+
+      double lot = PositionGetDouble(POSITION_VOLUME);
+      double pl  = PositionGetDouble(POSITION_PROFIT)+PositionGetDouble(POSITION_SWAP);
+      if(!g_trade.PositionClose(list[i]))
+        {
+         PrintFormat("REVERSE: yopilmadi #%d: %d %s", (int)list[i], g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
+         continue;
+        }
+      g_lastReverse = TimeCurrent();
+      Send(StringFormat("REVERSE: %s yopildi (natija %+.2f) - barcha indikator qarshi edi. Teskarisi ochilmoqda...",
+           (dir>0?"BUY":"SELL"), pl));
+
+      int   rdir = -dir;
+      lot = NormLot(lot);
+      bool ok = (rdir>0) ? g_trade.Buy(lot, _Symbol, 0, 0, 0, "reverse")
+                         : g_trade.Sell(lot, _Symbol, 0, 0, 0, "reverse");
+      if(ok)
+        {
+         double price = g_trade.ResultPrice();
+         Send(StringFormat("REVERSE: %s %.2f lot @ %s ochildi", (rdir>0?"BUY":"SELL"), lot, DoubleToString(price,_Digits)));
+         PostOpenActions(rdir, price);
+        }
+      else
+         Send(StringFormat("REVERSE: teskari bitim ochilmadi: %d - %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
+     }
+  }
+
 void CheckAveraging()
   {
    if(!g_addOn) return;
@@ -795,6 +1013,7 @@ void CheckAveraging()
          g_lastAdd = TimeCurrent();
          Send(StringFormat("QOSHIMCHA BITIM: %s %.2f lot\nSuzuvchi zarar: %.2f USD\nQoshimchalar: %d/%d\nJami lot: %.2f",
               (dir>0?"BUY":"SELL"), lot, pl, (dir>0?g_addsBuy:g_addsSell), InpMaxAdds, lots+lot));
+         PostOpenActions(dir, g_trade.ResultPrice());
         }
       else
          PrintFormat("Qoshimcha bitim ochilmadi: %d %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription());
@@ -937,10 +1156,13 @@ void ManualTrade(const int dir, double lot)
    bool ok = (dir>0) ? g_trade.Buy(lot, _Symbol, 0, sl, tp, "TG manual")
                      : g_trade.Sell(lot, _Symbol, 0, sl, tp, "TG manual");
    if(ok)
+     {
       Send(StringFormat("Telegram buyrugi bajarildi: %s %.2f lot @ %s%s%s",
            (dir>0?"BUY":"SELL"), lot, DoubleToString(entry,_Digits),
            (sl>0 ? "  SL "+DoubleToString(sl,_Digits) : ""),
            (tp>0 ? "  TP "+DoubleToString(tp,_Digits) : "")));
+      PostOpenActions(dir, g_trade.ResultPrice());
+     }
    else
       Send(StringFormat("Bitim ochilmadi: %d - %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()));
   }
@@ -1331,7 +1553,13 @@ void PollTelegram()
 void OnTimer()
   {
    MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
-   if(dt.day != g_day) { g_day=dt.day; g_dayStart=AccountInfoDouble(ACCOUNT_BALANCE); }
+   if(dt.day != g_day)
+     {
+      g_day=dt.day; g_dayStart=AccountInfoDouble(ACCOUNT_BALANCE);
+      ArrayFree(g_noRetrade);   // "bir narxda qayta savdo qilmaslik" xotirasi kun boshida tozalanadi
+     }
+   CheckLossAlerts();
+   CheckReverse();
    CheckAveraging();
    PollTelegram();
    DrawPanel();
