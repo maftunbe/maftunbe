@@ -9,6 +9,10 @@
 //|  Stoch ovozi: %K > %D -> +1 (osish)                               |
 //|  Ikkisi mos kelgan har bir bar uchun -> strelka                  |
 //|                                                                   |
+//|  Strelka faqat BAR YOPILGANDAN keyin qoyiladi, shu sabab bir     |
+//|  marta chiqgan strelka hech qachon ozgarmaydi/ochib ketmaydi -   |
+//|  tarixda doim shunday qolaveradi (repaint yoq).                  |
+//|                                                                   |
 //|  TradeSupervisor EA bilan ishlatish uchun:                       |
 //|    MODE_ARROWS: InpBufA=0 (BUY), InpBufB=1 (SELL)                |
 //+------------------------------------------------------------------+
@@ -160,10 +164,13 @@ int OnCalculate(const int        rates_total,
 
       BufBuy[i]  = EMPTY_VALUE;
       BufSell[i] = EMPTY_VALUE;
+      BufState[i] = combined;
+
+      bool isFormingBar = (i == rates_total-1);   // hali yopilmagan bar - strelka qoyilmaydi
+      if(isFormingBar) continue;                   // bar yopilgach, keyingi chaqiriqda yakuniy qiymat bilan chiziladi va shundan keyin ozgarmaydi
 
       if(combined>0)      BufBuy[i]  = low[i]  - atrArr[i]*InpArrowGapATR;
       else if(combined<0) BufSell[i] = high[i] + atrArr[i]*InpArrowGapATR;
-      BufState[i] = combined;
      }
 
    //--- yopilgan oxirgi bar bo'yicha xabar
