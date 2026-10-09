@@ -720,9 +720,9 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       JournalWrite(StringFormat("OPEN;%s;%s;%.2f;%s;%d;%d;%s",
            TimeToString(TimeCurrent()), (dir>0?"BUY":"SELL"), vol,
            DoubleToString(price,_Digits), agree, total, rec.detail));
-      // Istalgan manbadan (botning ozi, boshqa EA - masalan FxCruiser, yoki qolda)
-      // ochilgan HAR BIR bitimga avto-TP / qayta-savdo bloki shu yerda qollaniladi
-      PostOpenActions((ulong)posId, dir, price);
+      // Istalgan EA ochgan bitimga (botning ozi, boshqa EA - masalan FxCruiser) avto-TP /
+      // qayta-savdo bloki qollaniladi. Qolda ochilgan bitimlar (magic=0) tegilmaydi.
+      if(magic!=0) PostOpenActions((ulong)posId, dir, price);
       return;
      }
 
@@ -858,9 +858,10 @@ void CheckLossAlerts()
   }
 
 //====== AVTOMATIK TP + BIR NARXDA QAYTA SAVDO QILMASLIK (ochish payti) ======//
-// Har QANDAY yangi ochilgan bitimga (botning ozi, boshqa EA, yoki qolda ochilgan -
-// hammasiga) qollaniladi: avval "qayta savdo" xotirasi tekshiriladi (mos kelsa -
-// darhol yopiladi, TP qoyilmaydi), aks holda InpAutoTP qoyiladi.
+// Istalgan EA ochgan yangi bitimga (botning ozi yoki boshqa EA - masalan FxCruiser)
+// qollaniladi (qolda ochilganlar chaqiruvchi tomonda ozi elanadi): avval "qayta
+// savdo" xotirasi tekshiriladi (mos kelsa - darhol yopiladi, TP qoyilmaydi),
+// aks holda InpAutoTP qoyiladi.
 void PostOpenActions(const ulong t, const int dir, const double openPrice)
   {
    if(t==0) return;
@@ -894,9 +895,9 @@ void PostOpenActions(const ulong t, const int dir, const double openPrice)
   }
 
 //========================= REVERSE (TESKARI BITIM) =========================//
-// Istalgan ochiq bitimni (botning ozi, boshqa EA, yoki qolda ochilgan - hammasi)
+// Istalgan EA ochgan bitimni (botning ozi yoki boshqa EA - masalan FxCruiser)
 // FAQAT barcha yoqilgan indikator unga qarshi bolgandagina yopib, aynan shu lot
-// bilan teskari yonalishda qayta ochadi (yangi bitim SniperBotPro magic'i bilan).
+// bilan teskari yonalishda qayta ochadi. Qolda ochilgan bitimlar (magic=0) tegilmaydi.
 void CheckReverse()
   {
    if(!InpReverseEnable) return;
@@ -906,6 +907,7 @@ void CheckReverse()
    for(int i=0; i<n; i++)
      {
       if(!PositionSelectByTicket(list[i])) continue;
+      if(PositionGetInteger(POSITION_MAGIC)==0) continue;   // qolda ochilgan - tegilmaydi
       long ty  = PositionGetInteger(POSITION_TYPE);
       int  dir = (ty==POSITION_TYPE_BUY) ? 1 : -1;
 
