@@ -192,6 +192,8 @@ struct NoRetradeRec { double price; int dir; };
 NoRetradeRec g_noRetrade[];         // foyda bilan yopilgan narx+yonalish (kun oxirigacha)
 
 datetime g_lastReverse = 0;
+int      g_okCount    = 0;
+bool     g_startupSent = false;   // Telegram'ga "ishga tushdi" xabari faqat bir marta, kechiktirib yuboriladi
 
 bool AlreadySeen(const ulong deal)
   {
@@ -315,11 +317,12 @@ int OnInit()
                   (ch==ChartID() ? "  <- EA shu yerda" : ""));
       ch = ChartNext(ch);
      }
-   RegisterCommands();
-   SendKeyboard("SniperBotPro tayyor. Quyidagi tugmalardan foydalaning.");
    PrintFormat("SniperBotPro: %d ta indikator yuklandi. Telegram: %s",
                ok, (InpUseTelegram ? "yoqilgan" : "ochirilgan"));
-   Send(StringFormat("SniperBotPro ishga tushdi. Kuzatilayotgan indikatorlar: %d", ok));
+   g_okCount = ok;
+   // DIQQAT: Telegram/WebRequest chaqiruvlari ataylab OnInit'da emas, birinchi
+   // OnTimer siqlishida yuboriladi - aks holda MT5 internetga chiqishni kutib,
+   // EA ulanayotganda chart/terminal bir necha soniya "qotib qolgandek" korinadi.
    return(INIT_SUCCEEDED);
   }
 
@@ -1528,6 +1531,16 @@ void PollTelegram()
 
 void OnTimer()
   {
+   if(!g_startupSent)
+     {
+      g_startupSent = true;
+      // OnInit'da emas - internet (Telegram) chaqiruvlari shu yerda, ulanish paytida
+      // chart "qotib qolishining" oldini olish uchun
+      RegisterCommands();
+      SendKeyboard("SniperBotPro tayyor. Quyidagi tugmalardan foydalaning.");
+      Send(StringFormat("SniperBotPro ishga tushdi. Kuzatilayotgan indikatorlar: %d", g_okCount));
+     }
+
    MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
    if(dt.day != g_day)
      {
