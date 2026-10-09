@@ -144,11 +144,13 @@ int OnCalculate(const int        rates_total,
    ArraySetAsSeries(stochK,  false); ArraySetAsSeries(stochD,  false);
    ArraySetAsSeries(atrArr,  false);
 
-   if(CopyBuffer(hRvi,   0, 0, rates_total, rviMain) <= 0) return(0);
-   if(CopyBuffer(hRvi,   1, 0, rates_total, rviSig)  <= 0) return(0);
-   if(CopyBuffer(hStoch, 0, 0, rates_total, stochK)  <= 0) return(0);
-   if(CopyBuffer(hStoch, 1, 0, rates_total, stochD)  <= 0) return(0);
-   if(CopyBuffer(hAtr,   0, 0, rates_total, atrArr)  <= 0) return(0);
+   // CopyBuffer so'ralgandan kam bar qaytarishi mumkin (handle hali tarixni hisoblab ulgurmagan bolsa) -
+   // shu holatda massiv rates_total'dan kichik bolib qoladi va pastdagi sikl "out of range" berardi.
+   if(CopyBuffer(hRvi,   0, 0, rates_total, rviMain) < rates_total) return(0);
+   if(CopyBuffer(hRvi,   1, 0, rates_total, rviSig)  < rates_total) return(0);
+   if(CopyBuffer(hStoch, 0, 0, rates_total, stochK)  < rates_total) return(0);
+   if(CopyBuffer(hStoch, 1, 0, rates_total, stochD)  < rates_total) return(0);
+   if(CopyBuffer(hAtr,   0, 0, rates_total, atrArr)  < rates_total) return(0);
 
    int start = (prev_calculated > 1) ? prev_calculated - 1 : warm;
    start = MathMax(start, warm);
