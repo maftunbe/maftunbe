@@ -58,11 +58,11 @@ input double   InpLo3    = 0;
 input double   InpWeight3= 1.0;    // Vazn (ovoz salmogi)
 
 input group "=== Indikator 4 ==="
-input bool     InpUse4   = false;
-input string   InpName4  = "";
-input EIndMode InpMode4  = MODE_DIR;
-input int      InpBufA4  = 0;
-input int      InpBufB4  = 0;
+input bool     InpUse4   = true;
+input string   InpName4  = "RviStochSignal";  // RVI+Stochastic kelishuv indikatori (.ex5 shu nom bilan compile qilingan bolishi kerak)
+input EIndMode InpMode4  = MODE_ARROWS;
+input int      InpBufA4  = 0;      // BUY strelka buferi
+input int      InpBufB4  = 1;      // SELL strelka buferi
 input double   InpHi4    = 0;
 input double   InpLo4    = 0;
 input double   InpWeight4= 1.0;    // Vazn (ovoz salmogi)
