@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeSupervisor"
 #include <Trade\Trade.mqh>
-#property version   "2.70"
+#property version   "2.80"
 
 enum EIndMode
   {
@@ -57,15 +57,16 @@ input double   InpHi3    = 0;
 input double   InpLo3    = 0;
 input double   InpWeight3= 1.0;    // Vazn (ovoz salmogi)
 
-input group "=== Indikator 4 ==="
-input bool     InpUse4   = true;
-input string   InpName4  = "RviStochSignal";  // RVI+Stochastic kelishuv indikatori (.ex5 shu nom bilan compile qilingan bolishi kerak)
-input EIndMode InpMode4  = MODE_ARROWS;
-input int      InpBufA4  = 0;      // BUY strelka buferi
-input int      InpBufB4  = 1;      // SELL strelka buferi
-input double   InpHi4    = 0;
-input double   InpLo4    = 0;
-input double   InpWeight4= 1.0;    // Vazn (ovoz salmogi)
+input group "=== Indikator 4: RVI+Stochastic (ICHKI, tashqi .ex5 kerak emas) ==="
+input bool     InpUse4      = true;    // 4-indikator yoqilgan/ochirilgan
+input int      InpRviPeriod = 10;      // RVI davri
+input int      InpStochK    = 14;      // Stochastic %K davri
+input int      InpStochD    = 3;       // Stochastic %D davri
+input int      InpStochSlow = 3;       // Stochastic silliqlash
+input bool     InpAvoidExtreme = true; // Stochastic allaqachon ortiqcha zonada bolsa signal bermaydi
+input double   InpExtremeHi = 80.0;    // Shundan yuqorida BUY berilmaydi
+input double   InpExtremeLo = 20.0;    // Shundan pastda SELL berilmaydi
+input double   InpWeight4   = 1.0;     // Vazn (ovoz salmogi)
 
 input group "=== Umumiy ==="
 input int      InpLookback   = 3;      // ARROWS rejimi: signal necha bar ichida bolgani hisoblansin
@@ -163,6 +164,7 @@ double   g_dayStart   = 0;
 int      g_day        = -1;
 long     g_tgOffset   = 0;
 ulong    g_seen[];                 // qayta ishlangan bitimlar (takrorlanmasligi uchun)
+int      h_rviMain = INVALID_HANDLE, h_stoch4 = INVALID_HANDLE;   // Indikator 4: ichki RVI+Stochastic
 
 bool AlreadySeen(const ulong deal)
   {
@@ -191,10 +193,10 @@ int OnInit()
    SetSlot(0, InpUse1, InpName1, InpMode1, InpBufA1, InpBufB1, InpHi1, InpLo1, InpWeight1);
    SetSlot(1, InpUse2, InpName2, InpMode2, InpBufA2, InpBufB2, InpHi2, InpLo2, InpWeight2);
    SetSlot(2, InpUse3, InpName3, InpMode3, InpBufA3, InpBufB3, InpHi3, InpLo3, InpWeight3);
-   SetSlot(3, InpUse4, InpName4, InpMode4, InpBufA4, InpBufB4, InpHi4, InpLo4, InpWeight4);
+   SetSlot(3, InpUse4, "RVI+Stochastic(ichki)", MODE_ARROWS, 0, 1, 0, 0, InpWeight4);
 
    int ok = 0;
-   for(int i=0; i<4; i++)
+   for(int i=0; i<3; i++)
      {
       if(!g_ind[i].use || StringLen(g_ind[i].name)<2) { g_ind[i].use=false; continue; }
       g_ind[i].handle = iCustom(_Symbol, _Period, g_ind[i].name);
@@ -202,6 +204,19 @@ int OnInit()
         {
          PrintFormat("Indikator yuklanmadi: %s. Nomini va kompilyatsiyani tekshiring.", g_ind[i].name);
          g_ind[i].use = false;
+        }
+      else ok++;
+     }
+
+   //--- Indikator 4: tashqi .ex5 shart emas - RVI va Stochastic shu yerda, ichkarida hisoblanadi
+   if(g_ind[3].use)
+     {
+      h_rviMain = iRVI(_Symbol, _Period, InpRviPeriod);
+      h_stoch4  = iStochastic(_Symbol, _Period, InpStochK, InpStochD, InpStochSlow, MODE_SMA, STO_LOWHIGH);
+      if(h_rviMain==INVALID_HANDLE || h_stoch4==INVALID_HANDLE)
+        {
+         Print("Indikator 4 (RVI+Stochastic) ishga tushmadi");
+         g_ind[3].use = false;
         }
       else ok++;
      }
@@ -267,6 +282,8 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    for(int i=0; i<4; i++) if(g_ind[i].handle!=INVALID_HANDLE) IndicatorRelease(g_ind[i].handle);
+   if(h_rviMain!=INVALID_HANDLE) IndicatorRelease(h_rviMain);
+   if(h_stoch4 !=INVALID_HANDLE) IndicatorRelease(h_stoch4);
    ObjectsDeleteAll(0, PFX);
   }
 void OnTick() { }
@@ -382,9 +399,31 @@ void Send(const string text)
 
 //====================== INDIKATORNI SOROQ ==========================//
 // qaytaradi: +1 osish / BUY, -1 tushish / SELL, 0 neytral
+// Indikator 4: RVI (asosiy/signal) va Stochastic (%K/%D) shu yerda ichkarida hisoblanadi -
+// tashqi .ex5 kerak emas. Ikkisi bir yonalishda kelishgandagina +1/-1 qaytaradi.
+int AskRviStoch4()
+  {
+   double rviMain[], rviSig[], k[], d[];
+   ArraySetAsSeries(rviMain,true); ArraySetAsSeries(rviSig,true);
+   ArraySetAsSeries(k,true); ArraySetAsSeries(d,true);
+   if(CopyBuffer(h_rviMain, 0, 1, 1, rviMain) < 1) return(0);
+   if(CopyBuffer(h_rviMain, 1, 1, 1, rviSig)  < 1) return(0);
+   if(CopyBuffer(h_stoch4,  0, 1, 1, k)       < 1) return(0);
+   if(CopyBuffer(h_stoch4,  1, 1, 1, d)       < 1) return(0);
+
+   int rviVote = (rviMain[0]>rviSig[0]) ? 1 : ((rviMain[0]<rviSig[0]) ? -1 : 0);
+   int stoVote = (k[0]>d[0]) ? 1 : ((k[0]<d[0]) ? -1 : 0);
+   int combined = (rviVote==stoVote && rviVote!=0) ? rviVote : 0;
+
+   if(combined>0 && InpAvoidExtreme && k[0]>=InpExtremeHi) combined = 0;
+   if(combined<0 && InpAvoidExtreme && k[0]<=InpExtremeLo) combined = 0;
+   return(combined);
+  }
+
 int AskIndicator(const int i)
   {
    if(!g_ind[i].use) return(0);
+   if(i==3) return(AskRviStoch4());
    double a[], b[];
    ArraySetAsSeries(a,true); ArraySetAsSeries(b,true);
 
