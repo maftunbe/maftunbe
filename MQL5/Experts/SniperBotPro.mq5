@@ -1,5 +1,5 @@
 //+------------------------------------------------------------------+
-//|                                                 SniperBot.mq5    |
+//|                                              SniperBotPro.mq5       |
 //|  Sizning EA ngiz savdo ochganda chartdagi indikatorlarni soraydi  |
 //|  va ular savdoni tasdiqlaganmi yoki qarshimi - xabar beradi.      |
 //|                                                                   |
@@ -9,7 +9,7 @@
 //|                                                                   |
 //|  Sizning EA ngizning kodiga tegilmaydi. Bu alohida EA.            |
 //+------------------------------------------------------------------+
-#property copyright "SniperBot"
+#property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
 #property version   "2.80"
 
@@ -254,12 +254,12 @@ int OnInit()
       if(ChartGetInteger(c2, CHART_IS_OBJECT)==false && ChartSymbol(c2)!="")
         {
          string nm = ChartGetString(c2, CHART_EXPERT_NAME);
-         if(StringFind(nm, "SniperBot")>=0) copies++;
+         if(StringFind(nm, "SniperBotPro")>=0) copies++;
         }
       c2 = ChartNext(c2);
      }
    if(copies > 1)
-      Print("DIQQAT: SniperBot ", copies, " ta chartda ishlayapti. Xabarlar takrorlanadi. ",
+      Print("DIQQAT: SniperBotPro ", copies, " ta chartda ishlayapti. Xabarlar takrorlanadi. ",
             "Faqat bittasini qoldiring.");
 
    long ch = ChartFirst();
@@ -271,10 +271,10 @@ int OnInit()
       ch = ChartNext(ch);
      }
    RegisterCommands();
-   SendKeyboard("SniperBot tayyor. Quyidagi tugmalardan foydalaning.");
-   PrintFormat("SniperBot: %d ta indikator yuklandi. Telegram: %s",
+   SendKeyboard("SniperBotPro tayyor. Quyidagi tugmalardan foydalaning.");
+   PrintFormat("SniperBotPro: %d ta indikator yuklandi. Telegram: %s",
                ok, (InpUseTelegram ? "yoqilgan" : "ochirilgan"));
-   Send(StringFormat("SniperBot ishga tushdi. Kuzatilayotgan indikatorlar: %d", ok));
+   Send(StringFormat("SniperBotPro ishga tushdi. Kuzatilayotgan indikatorlar: %d", ok));
    return(INIT_SUCCEEDED);
   }
 
@@ -482,7 +482,7 @@ void RecalcWeight(const int i)
 void JournalWrite(const string line)
   {
    if(!InpJournal) return;
-   int h = FileOpen("SniperBot.csv", FILE_CSV|FILE_ANSI|FILE_READ|FILE_WRITE, ';');
+   int h = FileOpen("SniperBotPro.csv", FILE_CSV|FILE_ANSI|FILE_READ|FILE_WRITE, ';');
    if(h==INVALID_HANDLE) return;
    FileSeek(h, 0, SEEK_END);
    FileWrite(h, line);
@@ -560,7 +560,7 @@ void DrawPanel()
    if(!InpPanel) return;
    int used=0; for(int i=0;i<4;i++) if(g_ind[i].use) used++;
 
-   Row(0, "SniperBot - EA ni nazorat qilish", C'150,155,165');
+   Row(0, "SniperBotPro - EA ni nazorat qilish", C'150,155,165');
    // hozirgi holat: har indikator alohida qatorda
    int row = 1;
    for(int i=0;i<4;i++)
