@@ -1,13 +1,13 @@
 //+------------------------------------------------------------------+
 //|                                             RviStochSignal.mq5   |
 //|  RVI (Relative Vigor Index) va Stochastic'ni BITTA signalga      |
-//|  birlashtiradi: ikkisi bir yonalishda "rozi" bolganda (confluence)|
-//|  gina BUY/SELL strelkasi chiqadi. Faqat bittasi signal bersa -   |
-//|  hisobga olinmaydi, shu sabab kamroq, lekin ishonchliroq signal. |
+//|  birlashtiradi: ikkisi bir yonalishda "rozi" bolgan HAR BIR barda |
+//|  BUY/SELL strelkasi chiqadi (kelishuv davom etar ekan, har barda  |
+//|  qaytariladi). Faqat bittasi signal bersa - hisobga olinmaydi.   |
 //|                                                                   |
 //|  RVI ovozi : RVI asosiy chizigi > signal chizigi -> +1 (osish)   |
 //|  Stoch ovozi: %K > %D -> +1 (osish)                               |
-//|  Ikkisi mos kelib, aynan SHU bar'da kelishgan bolsa -> strelka    |
+//|  Ikkisi mos kelgan har bir bar uchun -> strelka                  |
 //|                                                                   |
 //|  TradeSupervisor EA bilan ishlatish uchun:                       |
 //|    MODE_ARROWS: InpBufA=0 (BUY), InpBufB=1 (SELL)                |
@@ -161,11 +161,8 @@ int OnCalculate(const int        rates_total,
       BufBuy[i]  = EMPTY_VALUE;
       BufSell[i] = EMPTY_VALUE;
 
-      if(combined!=0 && combined!=BufState[i-1])
-        {
-         if(combined>0) BufBuy[i]  = low[i]  - atrArr[i]*InpArrowGapATR;
-         else            BufSell[i] = high[i] + atrArr[i]*InpArrowGapATR;
-        }
+      if(combined>0)      BufBuy[i]  = low[i]  - atrArr[i]*InpArrowGapATR;
+      else if(combined<0) BufSell[i] = high[i] + atrArr[i]*InpArrowGapATR;
       BufState[i] = combined;
      }
 
