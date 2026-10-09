@@ -38,8 +38,8 @@ input double   InpLo1    = 0;      // LEVEL: quyi chegara
 input double   InpWeight1= 1.0;    // Vazn (ovoz salmogi, 0 = eslatma uchun, hisobga olinmaydi)
 
 input group "=== Indikator 2 ==="
-input bool     InpUse2   = true;
-input string   InpName2  = "TrendMatrix_MTF";
+input bool     InpUse2   = false;
+input string   InpName2  = "";
 input EIndMode InpMode2  = MODE_DIR;
 input int      InpBufA2  = 0;
 input int      InpBufB2  = 0;
