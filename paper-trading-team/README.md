@@ -14,6 +14,7 @@ Qoidalar: [`RULES.md`](./RULES.md). Jurnal: [`PaperTradingLog.csv`](./PaperTradi
 | `paper-buyer` | Hammasi tasdiqlansa, paper trade ticket yaratadi |
 | `paper-prediction-market` | Bashorat-bozor g'oyalarini alohida tadqiq qiladi |
 | `paper-logger` | Har bir savdoni/bloklangan setupni jurnalga yozadi |
+| `paper-boss` | Koordinator — butun pipeline'ni (Scanner→Anti-FOMO→Sizer→Buyer→Logger) o'zi bosqichma-bosqich o'tkazib, bitta yakuniy qaror beradi |
 
 ## Ish oqimi
 
@@ -25,10 +26,13 @@ Qoidalar: [`RULES.md`](./RULES.md). Jurnal: [`PaperTradingLog.csv`](./PaperTradi
 
 Bashorat-bozor g'oyalari `paper-prediction-market` orqali alohida yuradi va ular ham jurnalga yoziladi.
 
+Har safar 5 ta agentni birma-bir chaqirish o'rniga, **`paper-boss`** ga bitta token/setup berib, u butun zanjirni o'zi yurgizib, yagona yakuniy qarorni (trade ticket yoki TRADE BLOCKED) chiqarib, jurnalga ham yozib qo'yadi.
+
 ## Qanday ishlatiladi
 
 Claude Code sessiyasida bu subagentlarni nomi bilan chaqirish mumkin (Agent tool orqali, yoki ularga mos keladigan savolni yozganingizda avtomatik tanlanadi). Masalan:
 
+- "DOGE bo'yicha to'liq tekshiruv o'tkaz, yakuniy qaror ber" → `paper-boss`
 - "DOGE uchun setup bormi, Scanner tekshirsin" → `paper-scanner`
 - "Bu kirish FOMO emasmi?" → `paper-anti-fomo`
 - "$1000 hisobga, entry $0.10, stop $0.095 — hajmni hisobla" → `paper-sizer`

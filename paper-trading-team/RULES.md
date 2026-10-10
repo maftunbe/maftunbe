@@ -21,6 +21,7 @@ Bu loyihadagi barcha `paper-*` subagentlar quyidagi qoidalarga **har doim** amal
 4. **Prediction-Market Agent** (`paper-prediction-market`) — bashorat bozorlari tadqiqotini meme-coin savdolaridan alohida yuritadi.
 5. **Anti-FOMO Agent** (`paper-anti-fomo`) — "quvib kirish"ni bloklaydi. Standart holati — ehtiyotkor (shubha bo'lsa BLOCK).
 6. **Logger** (`paper-logger`) — har bir savdoni (yutuq, zarar, bloklangan setup) `PaperTradingLog.csv` ga yozadi, hech narsani yashirmaydi yoki o'zgartirmaydi.
+7. **Boss** (`paper-boss`) — koordinator. Yuqoridagi 1-4 bosqichlarni (Scanner→Anti-FOMO→Sizer→Buyer) o'zi ketma-ket yurgizadi va natijani Logger kabi jurnalga yozadi — foydalanuvchi har bir agentni alohida chaqirmasa ham bo'ladi.
 
 ## Ish oqimi (Step 8)
 
