@@ -16,6 +16,16 @@ Claude Code auto-loads skills from `.claude/skills/`. The ones installed here:
 - [`.claude/skills/mql5-indicator-patterns/SKILL.md`](.claude/skills/mql5-indicator-patterns/SKILL.md) —
   custom indicator patterns: buffers, display scale, new-bar detection,
   warmup calculation.
+- [`.claude/skills/bug-review/SKILL.md`](.claude/skills/bug-review/SKILL.md) —
+  review a diff/file for correctness bugs before merging.
+- [`.claude/skills/security-audit/SKILL.md`](.claude/skills/security-audit/SKILL.md) —
+  audit for leaked secrets, unsafe WebRequest/Telegram/AI calls.
+- [`.claude/skills/refactor/SKILL.md`](.claude/skills/refactor/SKILL.md) —
+  restructure code without changing behavior.
+- [`.claude/skills/api-design/SKILL.md`](.claude/skills/api-design/SKILL.md) —
+  design new EA inputs or external integrations before implementing them.
+- [`.claude/skills/docs-writer/SKILL.md`](.claude/skills/docs-writer/SKILL.md) —
+  write/update README sections and setup docs.
 
 No action is needed to "use" them — Claude Code reads a skill's `SKILL.md`
 automatically when its description matches the task at hand.
