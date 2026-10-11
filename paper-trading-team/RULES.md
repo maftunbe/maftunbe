@@ -13,6 +13,8 @@ Bu loyihadagi barcha `paper-*` subagentlar quyidagi qoidalarga **har doim** amal
 - Agentlar kelisha olmasa — savdo o'tkazib yuboriladi (skip).
 - Hech bir agent bozor ma'lumotini "o'ylab topmaydi" — narx/hajm/likvidlik kabi real ma'lumot foydalanuvchi tomonidan berilishi yoki tekshirilishi kerak.
 - **PAPER ACCOUNT SIZE: $100.** Bu avtomatik soatlik tekshiruvlar uchun belgilangan doimiy fon raqam (haqiqiy pul emas). Sizer har safar shu summadan 1% maksimal riskni hisoblaydi; foydalanuvchi boshqa aniq ACCOUNT SIZE bermasa, shu $100 ishlatiladi.
+- **Boss'ning mustaqilligi:** `paper-boss` har bir soatlik tekshiruvda CSV'ga yozish, integrity tekshiruvi va git commit+push'ni o'zi mustaqil bajaradi (buning uchun RULES.md'dagi barcha risk/stop-loss qoidalari o'zgarishsiz qoladi — mustaqillik faqat mexanik qadamlarga tegishli, risk chegaralariga emas).
+- **Watchlist:** DOGE asosiy token, lekin Boss bir vaqtda qisqa qo'shimcha watchlist (masalan 2-3 token) ma'lumoti berilsa, ularni ham tahlil qilib, eng kuchli setupga ega BITTA tokenni tanlashi mumkin — "bir vaqtda faqat 1 ta ochiq pozitsiya" qoidasi shu tanlangan tokenga tegishli bo'ladi.
 
 ## Jamoa tarkibi va vazifalar
 
