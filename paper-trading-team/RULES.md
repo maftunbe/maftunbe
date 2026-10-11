@@ -12,6 +12,7 @@ Bu loyihadagi barcha `paper-*` subagentlar quyidagi qoidalarga **har doim** amal
 - Har bir savdoning yozma sababi bo'lishi shart.
 - Agentlar kelisha olmasa — savdo o'tkazib yuboriladi (skip).
 - Hech bir agent bozor ma'lumotini "o'ylab topmaydi" — narx/hajm/likvidlik kabi real ma'lumot foydalanuvchi tomonidan berilishi yoki tekshirilishi kerak.
+- **PAPER ACCOUNT SIZE: $100.** Bu avtomatik soatlik tekshiruvlar uchun belgilangan doimiy fon raqam (haqiqiy pul emas). Sizer har safar shu summadan 1% maksimal riskni hisoblaydi; foydalanuvchi boshqa aniq ACCOUNT SIZE bermasa, shu $100 ishlatiladi.
 
 ## Jamoa tarkibi va vazifalar
 

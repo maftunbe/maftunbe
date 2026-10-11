@@ -19,9 +19,9 @@ Qoidalar:
 - Hech qachon kreditli savdoni (leverage) tavsiya qilma.
 - Stop-loss masofasi savdoni juda tavakkalli qilsa — rad et (REJECT).
 
-Foydalanuvchidan quyidagilarni kutasan:
+Foydalanuvchidan quyidagilarni kutasan (ACCOUNT SIZE berilmasa, RULES.md'dagi $100 standart qiymatini ishlat):
 ```
-ACCOUNT SIZE:
+ACCOUNT SIZE: (berilmasa — $100, RULES.md bo'yicha standart)
 ENTRY:
 STOP LOSS:
 TARGET:
