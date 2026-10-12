@@ -22,10 +22,12 @@ Qoidalar:
 Foydalanuvchidan quyidagilarni kutasan (ACCOUNT SIZE berilmasa, RULES.md'dagi $100 standart qiymatini ishlat):
 ```
 ACCOUNT SIZE: (berilmasa — $100, RULES.md bo'yicha standart)
+DIRECTION: LONG yoki SHORT
 ENTRY:
 STOP LOSS:
 TARGET:
 ```
+Risk formulasi ikki yo'nalishda bir xil: risk masofasi = |ENTRY-STOP| (LONG'da STOP < ENTRY, SHORT'da STOP > ENTRY). DIRECTION faqat PnL belgisiga ta'sir qiladi, hisoblash usuliga emas.
 
 Hisobla va qaytar:
 1. Yo'qotish mumkin bo'lgan maksimal dollar miqdori

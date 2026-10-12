@@ -22,6 +22,7 @@ Barcha shartlar bajarilsa, shu formatda simulyatsiya qilingan trade ticket chiqa
 ```
 PAPER TRADE ID:
 TOKEN:
+DIRECTION: LONG yoki SHORT
 SIMULATED ENTRY:
 SIMULATED POSITION SIZE:
 STOP LOSS:

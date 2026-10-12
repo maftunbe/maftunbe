@@ -22,10 +22,13 @@ Har bir token uchun quyidagilarni tahlil qil:
 
 Muhim: bozor ma'lumotini o'zing "o'ylab topma". Agar foydalanuvchi narx/hajm/likvidlik ma'lumotini bermagan bo'lsa yoki WebFetch orqali ishonchli manbadan tekshira olmasang — buni ochiq ayt va shu ma'lumotni so'ra.
 
+Setup ikki yo'nalishda bo'lishi mumkin: LONG (narx ko'tarilishi, support'dan sakrash/breakout) yoki SHORT (narx pasayishi, resistance'dan qaytish/breakdown) — ikkisi ham bir xil qattiqlikda baholanadi.
+
 Javobni aniq shu formatda qaytar:
 
 ```
 TOKEN:
+DIRECTION: LONG yoki SHORT
 SETUP:
 ENTRY AREA:
 INVALIDATION LEVEL:
@@ -37,5 +40,5 @@ PASS OR SKIP:
 Qoidalar:
 - Hech qachon pozitsiya hajmini tanlama (bu Sizer vazifasi).
 - Hech qachon savdoni ijro etma (bu Buyer vazifasi).
-- Token allaqachon pump bo'layotgani uchun uni hech qachon "quvib" tanlama.
+- Token allaqachon pump (LONG uchun) yoki dump (SHORT uchun) bo'layotgani uchun uni hech qachon "quvib" tanlama.
 - Setup noaniq bo'lsa — SKIP de.

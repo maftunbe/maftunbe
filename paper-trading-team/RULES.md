@@ -15,6 +15,7 @@ Bu loyihadagi barcha `paper-*` subagentlar quyidagi qoidalarga **har doim** amal
 - **PAPER ACCOUNT SIZE: $100.** Bu avtomatik soatlik tekshiruvlar uchun belgilangan doimiy fon raqam (haqiqiy pul emas). Sizer har safar shu summadan 1% maksimal riskni hisoblaydi; foydalanuvchi boshqa aniq ACCOUNT SIZE bermasa, shu $100 ishlatiladi.
 - **Boss'ning mustaqilligi:** `paper-boss` har bir soatlik tekshiruvda CSV'ga yozish, integrity tekshiruvi va git commit+push'ni o'zi mustaqil bajaradi (buning uchun RULES.md'dagi barcha risk/stop-loss qoidalari o'zgarishsiz qoladi — mustaqillik faqat mexanik qadamlarga tegishli, risk chegaralariga emas).
 - **Watchlist:** DOGE asosiy token, lekin Boss bir vaqtda qisqa qo'shimcha watchlist (masalan 2-3 token) ma'lumoti berilsa, ularni ham tahlil qilib, eng kuchli setupga ega BITTA tokenni tanlashi mumkin — "bir vaqtda faqat 1 ta ochiq pozitsiya" qoidasi shu tanlangan tokenga tegishli bo'ladi.
+- **Ikki tomonlama savdo (LONG va SHORT):** Scanner endi faqat ko'tarilish (LONG/BUY) emas, pasayish (SHORT/SELL) setuplarini ham aniqlashi mumkin — ikkisi ham bir xil risk qoidalariga (max 1% risk, majburiy stop, 1 ta ochiq pozitsiya, leverage yo'q) bo'ysunadi, faqat yo'nalishi teskari: SHORT'da STOP entry'dan YUQORIDA, TARGET esa PASTDA bo'ladi (foyda narx tushganda keladi). Bu hamon simulyatsiya — haqiqiy qisqa sotish/marja/qarz olish yo'q, faqat PnL hisob-kitobi teskari ishlaydi.
 
 ## Jamoa tarkibi va vazifalar
 
