@@ -70,6 +70,7 @@ input bool          InpOscUseExtreme = true;       // Narx haqiqiy ekstremumda b
 input int           InpOscExtLookback= 40;         // Ekstremum: necha bar ichidagi eng baland/past
 input int           InpOscExtRecent  = 8;          // Ekstremum oxirgi necha barda bolgan bolsin
 input double        InpWeight3       = 1.0;        // Vazn (ovoz salmogi)
+input string        InpOscDisplayFile= "IndibotOsc"; // Faqat KORISH uchun (ixtiyoriy - EA qarorga ishlatmaydi, topilmasa jim otkaziladi)
 
 input group "=== Indikator 4: RVI+Stochastic (ICHKI, tashqi .ex5 kerak emas) ==="
 input bool     InpUse4      = true;    // 4-indikator yoqilgan/ochirilgan
@@ -197,6 +198,7 @@ int      g_day        = -1;
 long     g_tgOffset   = 0;
 ulong    g_seen[];                 // qayta ishlangan bitimlar (takrorlanmasligi uchun)
 int      h_rviMain = INVALID_HANDLE, h_stoch4 = INVALID_HANDLE;   // Indikator 4: ichki RVI+Stochastic
+int      h_oscDisplay = INVALID_HANDLE;   // Indikator 3: faqat korish uchun (qarorga ishlatilmaydi)
 
 struct LossAlertRec { ulong ticket; int level; };
 LossAlertRec g_lossAlert[];         // har pozitsiya uchun oxirgi xabar berilgan zarar darajasi
@@ -275,8 +277,16 @@ int OnInit()
       int win = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
       if(g_ind[1].use && g_ind[1].handle!=INVALID_HANDLE)
         { ChartIndicatorAdd(0, win, g_ind[1].handle); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); }
-      if(g_ind[2].use && g_ind[2].handle!=INVALID_HANDLE)
-        { ChartIndicatorAdd(0, win, g_ind[2].handle); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); }
+      // Indikator 3 (IndibotOsc) qarorni ichkarida hisoblaydi - bu faqat KORISH uchun,
+      // .ex5 topilmasa yoki eskirgan bolsa jim otkaziladi, EA ishlashiga taqalmaydi.
+      if(g_ind[2].use && StringLen(InpOscDisplayFile)>=2)
+        {
+         h_oscDisplay = iCustom(_Symbol, _Period, InpOscDisplayFile);
+         if(h_oscDisplay!=INVALID_HANDLE)
+           { ChartIndicatorAdd(0, win, h_oscDisplay); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); }
+         else
+            Print("IndibotOsc korish uchun yuklanmadi (ixtiyoriy) - .ex5 topilmadi yoki kompilyatsiya qilinmagan. EA xatti-harakatiga taqalmaydi.");
+        }
       if(g_ind[3].use)
         {
          ChartIndicatorAdd(0, win, h_rviMain);
@@ -348,6 +358,7 @@ void OnDeinit(const int reason)
    for(int i=0; i<4; i++) if(g_ind[i].handle!=INVALID_HANDLE) IndicatorRelease(g_ind[i].handle);
    if(h_rviMain!=INVALID_HANDLE) IndicatorRelease(h_rviMain);
    if(h_stoch4 !=INVALID_HANDLE) IndicatorRelease(h_stoch4);
+   if(h_oscDisplay!=INVALID_HANDLE) IndicatorRelease(h_oscDisplay);
    ObjectsDeleteAll(0, PFX);
   }
 void OnTick() { }
