@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "2.90"
+#property version   "3.00"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -25,6 +25,12 @@ enum EAIProvider
   {
    AI_ANTHROPIC = 0,  // api.anthropic.com/v1/messages
    AI_OPENAI    = 1   // api.openai.com/v1/chat/completions (OpenAI-moslashgan boshqa provayderlar ham)
+  };
+
+enum ENUM_OSC_MODE
+  {
+   OSC_DSS       = 0,   // DSS Bressert (double smoothed stochastic)
+   OSC_WAVETREND = 1    // WaveTrend (LazyBear)
   };
 
 //============================= INPUTS ==============================//
@@ -48,15 +54,22 @@ input double   InpHi2    = 0;
 input double   InpLo2    = 0;
 input double   InpWeight2= 1.0;    // Vazn (ovoz salmogi)
 
-input group "=== Indikator 3 ==="
-input bool     InpUse3   = true;
-input string   InpName3  = "IndibotOsc";
-input EIndMode InpMode3  = MODE_ARROWS;
-input int      InpBufA3  = 4;      // BUY strelka buferi
-input int      InpBufB3  = 5;      // SELL strelka buferi
-input double   InpHi3    = 0;
-input double   InpLo3    = 0;
-input double   InpWeight3= 1.0;    // Vazn (ovoz salmogi)
+input group "=== Indikator 3: IndibotOsc (ICHKI, tashqi .ex5 kerak emas) ==="
+input bool          InpUse3          = true;      // 3-indikator (IndibotOsc) yoqilgan/ochirilgan
+input ENUM_OSC_MODE InpOscMode       = OSC_DSS;    // Ossillyator turi
+input int           InpOscPDS        = 40;         // DSS: Stochastic davri (swing olchamiga mos bolsin)
+input int           InpOscEmaLen     = 12;         // DSS: EMA silliqlash
+input int           InpOscTrigLen    = 5;          // DSS: signal chizigi EMA
+input int           InpOscChanLen    = 10;         // WaveTrend: n1 (Channel)
+input int           InpOscAvgLen     = 21;         // WaveTrend: n2 (Average)
+input int           InpOscSigLen     = 4;          // WaveTrend: signal SMA
+input double        InpOscWTScale    = 0.6;        // WaveTrend: 0..100 ga otkazish koeffitsienti
+input double        InpOscSellZone   = 80.0;       // SELL: kesishish shundan yuqorida
+input double        InpOscBuyZone    = 20.0;       // BUY: kesishish shundan pastda
+input bool          InpOscUseExtreme = true;       // Narx haqiqiy ekstremumda bolsin (filtr)
+input int           InpOscExtLookback= 40;         // Ekstremum: necha bar ichidagi eng baland/past
+input int           InpOscExtRecent  = 8;          // Ekstremum oxirgi necha barda bolgan bolsin
+input double        InpWeight3       = 1.0;        // Vazn (ovoz salmogi)
 
 input group "=== Indikator 4: RVI+Stochastic (ICHKI, tashqi .ex5 kerak emas) ==="
 input bool     InpUse4      = true;    // 4-indikator yoqilgan/ochirilgan
@@ -221,11 +234,11 @@ int OnInit()
   {
    SetSlot(0, InpUse1, InpName1, InpMode1, InpBufA1, InpBufB1, InpHi1, InpLo1, InpWeight1);
    SetSlot(1, InpUse2, InpName2, InpMode2, InpBufA2, InpBufB2, InpHi2, InpLo2, InpWeight2);
-   SetSlot(2, InpUse3, InpName3, InpMode3, InpBufA3, InpBufB3, InpHi3, InpLo3, InpWeight3);
+   SetSlot(2, InpUse3, "IndibotOsc(ichki)", MODE_ARROWS, 0, 1, 0, 0, InpWeight3);
    SetSlot(3, InpUse4, "RVI+Stochastic(ichki)", MODE_ARROWS, 0, 1, 0, 0, InpWeight4);
 
    int ok = 0;
-   for(int i=0; i<3; i++)
+   for(int i=0; i<2; i++)
      {
       if(!g_ind[i].use || StringLen(g_ind[i].name)<2) { g_ind[i].use=false; continue; }
       g_ind[i].handle = iCustom(_Symbol, _Period, g_ind[i].name);
@@ -236,6 +249,9 @@ int OnInit()
         }
       else ok++;
      }
+
+   //--- Indikator 3: tashqi .ex5 shart emas - IndibotOsc mantiqi shu yerda, ichkarida hisoblanadi
+   if(g_ind[2].use) ok++;
 
    //--- Indikator 4: tashqi .ex5 shart emas - RVI va Stochastic shu yerda, ichkarida hisoblanadi
    if(g_ind[3].use)
@@ -447,7 +463,115 @@ void Send(const string text)
 
 //====================== INDIKATORNI SOROQ ==========================//
 // qaytaradi: +1 osish / BUY, -1 tushish / SELL, 0 neytral
-// Indikator 4: RVI (asosiy/signal) va Stochastic (%K/%D) shu yerda ichkarida hisoblanadi -
+
+//--- Indikator 3: IndibotOsc mantiqi (DSS Bressert / WaveTrend) - ICHKI hisob-kitob -----
+// IndibotOsc.mq5'dagi aynan shu formulalar (Ema/Clamp/CalcBar/AtExtreme) va signal shart-
+// lari (ekstremal zonada Fast/Slow kesishishi) ko'chirilgan - faqat chizish (B.E/TP/quti)
+// yoq, chunki EA faqat +1/-1/0 qaror kerak qiladi. Har chaqiruvda ozgina tarixni (Warm+
+// Lookback barlar) qaytadan hisoblaydi - OnTimer davriy chaqirilgani uchun bu arzon.
+double IbEma(const double val, const double prev, const int per)
+  {
+   return(prev + (2.0/(per+1.0))*(val-prev));
+  }
+
+double IbClamp(const double v)
+  {
+   return(MathMax(0.0, MathMin(100.0, v)));
+  }
+
+int IbWarmBars()
+  {
+   int w = (InpOscMode==OSC_DSS) ? InpOscPDS*2 + InpOscEmaLen*3 + InpOscTrigLen*2 + 5
+                                  : InpOscChanLen*3 + InpOscAvgLen*3 + InpOscSigLen + 5;
+   return(MathMax(w, InpOscExtLookback + 2));
+  }
+
+void IbCalcBar(const int i, const double &high[], const double &low[], const double &close[],
+               double &b1[], double &b2[], double &b3[], double &fast[], double &slow[])
+  {
+   if(InpOscMode==OSC_DSS)
+     {
+      int from = MathMax(0, i-InpOscPDS+1);
+      double hh=high[from], ll=low[from];
+      for(int k=from+1; k<=i; k++){ hh=MathMax(hh,high[k]); ll=MathMin(ll,low[k]); }
+      double sto1 = (hh>ll) ? (close[i]-ll)/(hh-ll)*100.0 : 50.0;
+      b1[i] = (i==0) ? sto1 : IbEma(sto1, b1[i-1], InpOscEmaLen);
+
+      double xh=b1[from], xl=b1[from];
+      for(int k=from+1; k<=i; k++){ xh=MathMax(xh,b1[k]); xl=MathMin(xl,b1[k]); }
+      double sto2 = (xh>xl) ? (b1[i]-xl)/(xh-xl)*100.0 : 50.0;
+
+      fast[i] = (i==0) ? sto2 : IbEma(sto2, fast[i-1], InpOscEmaLen);
+      slow[i] = (i==0) ? fast[i] : IbEma(fast[i], slow[i-1], InpOscTrigLen);
+     }
+   else
+     {
+      double ap = (high[i]+low[i]+close[i])/3.0;
+      if(i==0){ b1[i]=ap; b2[i]=0.0; b3[i]=0.0; }
+      else
+        {
+         b1[i] = IbEma(ap, b1[i-1], InpOscChanLen);
+         b2[i] = IbEma(MathAbs(ap-b1[i]), b2[i-1], InpOscChanLen);
+         double ci = (b2[i]>0) ? (ap-b1[i])/(0.015*b2[i]) : 0.0;
+         b3[i] = IbEma(ci, b3[i-1], InpOscAvgLen);
+        }
+      double s=0; int c=0;
+      for(int k=0; k<InpOscSigLen && i-k>=0; k++){ s+=b3[i-k]; c++; }
+      double wt2 = s/c;
+      fast[i] = IbClamp(50.0 + b3[i]*InpOscWTScale);
+      slow[i] = IbClamp(50.0 + wt2  *InpOscWTScale);
+     }
+  }
+
+// true = oxirgi InpOscExtRecent bar ichida InpOscExtLookback barlik eng past (buy) / eng baland (sell) bolgan
+bool IbAtExtreme(const int i, const bool buy, const double &high[], const double &low[])
+  {
+   int fromAll = MathMax(0, i-InpOscExtLookback+1);
+   int fromRec = MathMax(0, i-InpOscExtRecent+1);
+   double recent = buy ? low[fromRec] : high[fromRec];
+   for(int k=fromRec; k<=i; k++) recent = buy ? MathMin(recent,low[k]) : MathMax(recent,high[k]);
+   double all = recent;
+   for(int k=fromAll; k<=i; k++) all = buy ? MathMin(all,low[k]) : MathMax(all,high[k]);
+   return(buy ? recent<=all : recent>=all);
+  }
+
+int AskIndibotOsc()
+  {
+   int warm = IbWarmBars();
+   int need = warm + MathMax(1,InpLookback) + 20;
+   double hi[], lo[], cl[];
+   if(CopyHigh(_Symbol,_Period,0,need,hi)  < need) return(0);
+   if(CopyLow(_Symbol,_Period,0,need,lo)   < need) return(0);
+   if(CopyClose(_Symbol,_Period,0,need,cl) < need) return(0);
+   ArraySetAsSeries(hi,false); ArraySetAsSeries(lo,false); ArraySetAsSeries(cl,false);
+
+   int n = ArraySize(cl);
+   double b1[], b2[], b3[], fast[], slow[];
+   ArrayResize(b1,n); ArrayResize(b2,n); ArrayResize(b3,n); ArrayResize(fast,n); ArrayResize(slow,n);
+   for(int i=0;i<n;i++) IbCalcBar(i, hi, lo, cl, b1, b2, b3, fast, slow);
+
+   int lastClosed = n-2;   // n-1 = hali yopilmagan joriy bar
+   int lb = MathMax(1, InpLookback);
+   for(int k=0; k<lb; k++)
+     {
+      int i = lastClosed - k;
+      if(i<1) break;
+      bool crossDown = (fast[i-1] >= slow[i-1] && fast[i] < slow[i]);
+      bool crossUp   = (fast[i-1] <= slow[i-1] && fast[i] > slow[i]);
+      bool sell = crossDown && MathMax(fast[i-1], slow[i-1]) >= InpOscSellZone;
+      bool buy  = crossUp   && MathMin(fast[i-1], slow[i-1]) <= InpOscBuyZone;
+      if(InpOscUseExtreme)
+        {
+         if(buy  && !IbAtExtreme(i, true,  hi, lo)) buy  = false;
+         if(sell && !IbAtExtreme(i, false, hi, lo)) sell = false;
+        }
+      if(buy)  return(1);
+      if(sell) return(-1);
+     }
+   return(0);
+  }
+
+//--- Indikator 4: RVI (asosiy/signal) va Stochastic (%K/%D) shu yerda ichkarida hisoblanadi -
 // tashqi .ex5 kerak emas. Ikkisi bir yonalishda kelishgandagina +1/-1 qaytaradi.
 int AskRviStoch4()
   {
@@ -471,6 +595,7 @@ int AskRviStoch4()
 int AskIndicator(const int i)
   {
    if(!g_ind[i].use) return(0);
+   if(i==2) return(AskIndibotOsc());
    if(i==3) return(AskRviStoch4());
    double a[], b[];
    ArraySetAsSeries(a,true); ArraySetAsSeries(b,true);
