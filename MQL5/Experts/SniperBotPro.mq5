@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.00"
+#property version   "3.10"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -85,6 +85,7 @@ input double   InpWeight4   = 1.0;     // Vazn (ovoz salmogi)
 
 input group "=== Umumiy ==="
 input bool     InpShowOnChart= true;   // Barcha ishlatilayotgan indikatorlarni chartda korsatish (avtomatik)
+input bool     InpDrawSignalArrows=true; // Ichki hisoblangan 3,4-indikatorlar signal bergan barga narx grafigida strelka chizsin
 input int      InpLookback   = 3;      // ARROWS rejimi: signal necha bar ichida bolgani hisoblansin
 input long     InpMagicWatch = -1;     // Faqat shu magic (-1 = hamma savdolar)
 input bool     InpUsePush    = true;   // MT5 mobilga push
@@ -206,6 +207,7 @@ LossAlertRec g_lossAlert[];         // har pozitsiya uchun oxirgi xabar berilgan
 struct NoRetradeRec { double price; int dir; };
 NoRetradeRec g_noRetrade[];         // foyda bilan yopilgan narx+yonalish (kun oxirigacha)
 
+datetime g_lastArrowBar = 0;   // ichki indikator strelkalari oxirgi tekshirilgan bar vaqti
 datetime g_lastReverse = 0;
 int      g_okCount    = 0;
 bool     g_startupSent = false;   // Telegram'ga "ishga tushdi" xabari faqat bir marta, kechiktirib yuboriladi
@@ -546,6 +548,27 @@ bool IbAtExtreme(const int i, const bool buy, const double &high[], const double
    return(buy ? recent<=all : recent>=all);
   }
 
+// Fast/Slow kesishishi + zona + ekstremum shartini FAQAT bitta bar uchun tekshiradi.
+// AskIndibotOsc() (lookback oynasi) va AskIndibotOscFreshSignal() (faqat eng oxirgi
+// yopilgan bar - strelka chizish uchun) shu bitta funksiyani ishlatadi.
+int IbSignalAt(const int i, const double &fast[], const double &slow[],
+               const double &high[], const double &low[])
+  {
+   if(i<1) return(0);
+   bool crossDown = (fast[i-1] >= slow[i-1] && fast[i] < slow[i]);
+   bool crossUp   = (fast[i-1] <= slow[i-1] && fast[i] > slow[i]);
+   bool sell = crossDown && MathMax(fast[i-1], slow[i-1]) >= InpOscSellZone;
+   bool buy  = crossUp   && MathMin(fast[i-1], slow[i-1]) <= InpOscBuyZone;
+   if(InpOscUseExtreme)
+     {
+      if(buy  && !IbAtExtreme(i, true,  high, low)) buy  = false;
+      if(sell && !IbAtExtreme(i, false, high, low)) sell = false;
+     }
+   if(buy)  return(1);
+   if(sell) return(-1);
+   return(0);
+  }
+
 int AskIndibotOsc()
   {
    int warm = IbWarmBars();
@@ -567,19 +590,30 @@ int AskIndibotOsc()
      {
       int i = lastClosed - k;
       if(i<1) break;
-      bool crossDown = (fast[i-1] >= slow[i-1] && fast[i] < slow[i]);
-      bool crossUp   = (fast[i-1] <= slow[i-1] && fast[i] > slow[i]);
-      bool sell = crossDown && MathMax(fast[i-1], slow[i-1]) >= InpOscSellZone;
-      bool buy  = crossUp   && MathMin(fast[i-1], slow[i-1]) <= InpOscBuyZone;
-      if(InpOscUseExtreme)
-        {
-         if(buy  && !IbAtExtreme(i, true,  hi, lo)) buy  = false;
-         if(sell && !IbAtExtreme(i, false, hi, lo)) sell = false;
-        }
-      if(buy)  return(1);
-      if(sell) return(-1);
+      int sig = IbSignalAt(i, fast, slow, hi, lo);
+      if(sig!=0) return(sig);
      }
    return(0);
+  }
+
+// Faqat eng oxirgi YOPILGAN barda signal chiqqan-chiqmaganini tekshiradi (lookback
+// oynasisiz) - strelka xuddi signal paydo bolgan barga chizilishi uchun ishlatiladi.
+int AskIndibotOscFreshSignal()
+  {
+   int warm = IbWarmBars();
+   int need = warm + 20;
+   double hi[], lo[], cl[];
+   if(CopyHigh(_Symbol,_Period,0,need,hi)  < need) return(0);
+   if(CopyLow(_Symbol,_Period,0,need,lo)   < need) return(0);
+   if(CopyClose(_Symbol,_Period,0,need,cl) < need) return(0);
+   ArraySetAsSeries(hi,false); ArraySetAsSeries(lo,false); ArraySetAsSeries(cl,false);
+
+   int n = ArraySize(cl);
+   double b1[], b2[], b3[], fast[], slow[];
+   ArrayResize(b1,n); ArrayResize(b2,n); ArrayResize(b3,n); ArrayResize(fast,n); ArrayResize(slow,n);
+   for(int i=0;i<n;i++) IbCalcBar(i, hi, lo, cl, b1, b2, b3, fast, slow);
+
+   return(IbSignalAt(n-2, fast, slow, hi, lo));
   }
 
 //--- Indikator 4: RVI (asosiy/signal) va Stochastic (%K/%D) shu yerda ichkarida hisoblanadi -
@@ -601,6 +635,54 @@ int AskRviStoch4()
    if(combined>0 && InpAvoidExtreme && k[0]>=InpExtremeHi) combined = 0;
    if(combined<0 && InpAvoidExtreme && k[0]<=InpExtremeLo) combined = 0;
    return(combined);
+  }
+
+//================== ICHKI INDIKATOR STRELKALARI (narx grafigida) ===================//
+// RVI+Stochastic va IndibotOsc(ichki) hech qanday .ex5 ulamagani uchun ozlari strelka
+// chizmaydi (faqat chiziq/qiymat). Shuning uchun EA signal topgan ANIQ barga ozi
+// strelka obyekti chizadi - xuddi haqiqiy indikator arrow'i kabi.
+void DrawSignalArrow(const string tag, const datetime t, const double price, const bool buy)
+  {
+   string nm = PFX+"SIG_"+tag+"_"+(string)(long)t;
+   if(ObjectFind(0,nm)>=0) return;   // bu bar uchun allaqachon chizilgan
+   ObjectCreate(0, nm, OBJ_ARROW, 0, t, price);
+   ObjectSetInteger(0, nm, OBJPROP_ARROWCODE, buy?233:234);
+   ObjectSetInteger(0, nm, OBJPROP_COLOR, buy?clrLime:clrRed);
+   ObjectSetInteger(0, nm, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, nm, OBJPROP_ANCHOR, buy?ANCHOR_TOP:ANCHOR_BOTTOM);
+   ObjectSetInteger(0, nm, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, nm, OBJPROP_HIDDEN, true);
+   ObjectSetString (0, nm, OBJPROP_TOOLTIP, tag+" "+(buy?"BUY":"SELL"));
+  }
+
+// Har yangi yopilgan barda bir marta: Indikator 3 (IndibotOsc) va Indikator 4
+// (RVI+Stochastic) o'sha bardagi signalini tekshiradi va topsa strelka chizadi.
+void DrawInternalArrows()
+  {
+   if(!InpDrawSignalArrows) return;
+   datetime tb[];
+   if(CopyTime(_Symbol,_Period,1,1,tb) < 1) return;
+   datetime barTime = tb[0];
+   if(barTime <= g_lastArrowBar) return;
+   g_lastArrowBar = barTime;
+
+   double loA[1], hiA[1];
+   if(CopyLow(_Symbol,_Period,1,1,loA)  < 1) return;
+   if(CopyHigh(_Symbol,_Period,1,1,hiA) < 1) return;
+
+   if(g_ind[2].use)
+     {
+      int v = AskIndibotOscFreshSignal();
+      if(v>0)      DrawSignalArrow("IB3", barTime, loA[0], true);
+      else if(v<0) DrawSignalArrow("IB3", barTime, hiA[0], false);
+     }
+   if(g_ind[3].use)
+     {
+      int v = AskRviStoch4();
+      if(v>0)      DrawSignalArrow("IB4", barTime, loA[0], true);
+      else if(v<0) DrawSignalArrow("IB4", barTime, hiA[0], false);
+     }
+   ChartRedraw(0);
   }
 
 int AskIndicator(const int i)
@@ -1768,6 +1850,7 @@ void OnTimer()
    CheckLossAlerts();
    CheckReverse();
    CheckAveraging();
+   DrawInternalArrows();
    PollTelegram();
    DrawPanel();
   }

@@ -7,7 +7,7 @@
 //|  - Narx grafigida va ossillyatorda signal qutilari               |
 //+------------------------------------------------------------------+
 #property copyright "Indibot logic rebuild"
-#property version   "1.10"
+#property version   "1.20"
 #property indicator_separate_window
 #property indicator_minimum 0
 #property indicator_maximum 100
@@ -85,6 +85,7 @@ input int      InpBoxBars         = 4;       // Quti necha barni qamrasin
 input int      InpBoxExtend       = 3;       // Qutini o'ngga necha bar cho'zish
 input bool     InpDrawStages      = false;   // B.E/TP1/TP2/TP3 yozuvlarini chizish (yopiq - panelni band qilmasin)
 input bool     InpShowStats       = false;   // "Signal N | B.E/TP foizlari" statistika yozuvini korsatish
+input bool     InpShowLevels      = false;   // SELL ZONE/B.E/TP1/TP2/TP3/BUY ZONE gorizontal chiziqlarini korsatish
 input double   InpHistScale       = 1.5;     // Gistogramma masshtabi
 input double   InpHistMax         = 12.0;    // Gistogramma maksimal balandligi
 input color    InpSellColor       = clrRed;
@@ -147,22 +148,27 @@ int OnInit()
    int warm = WarmBars();
    for(int p=0; p<5; p++) PlotIndexSetInteger(p, PLOT_DRAW_BEGIN, warm);
 
-   //--- darajalar
-   double lv[13];
-   lv[0]=MathMin(InpSellZone+3.46,100.0); lv[1]=InpSellZone; lv[2]=InpSellBE; lv[3]=InpSellTP1;
-   lv[4]=InpSellTP2; lv[5]=InpSellTP3; lv[6]=50.0; lv[7]=InpBuyTP3; lv[8]=InpBuyTP2;
-   lv[9]=InpBuyTP1; lv[10]=InpBuyBE; lv[11]=InpBuyZone; lv[12]=MathMax(InpBuyZone-3.15,0.0);
-   string tx[13] = {"FULL SELL NOW","SELL ZONE","B.E","TP1","TP2","TP3","",
-                    "TP3","TP2","TP1","B.E","FULL BUY NOW","BUY 100%"};
-   IndicatorSetInteger(INDICATOR_LEVELS, 13);
-   for(int k=0; k<13; k++)
+   //--- darajalar (ixtiyoriy - standart yopiq, panelni band qilmasin)
+   if(InpShowLevels)
      {
-      IndicatorSetDouble(INDICATOR_LEVELVALUE, k, lv[k]);
-      IndicatorSetString(INDICATOR_LEVELTEXT, k, tx[k]);
-      color c = (k<6) ? InpSellColor : (k==6 ? clrGray : InpBuyColor);
-      IndicatorSetInteger(INDICATOR_LEVELCOLOR, k, c);
-      IndicatorSetInteger(INDICATOR_LEVELSTYLE, k, (k==1 || k==11) ? STYLE_SOLID : STYLE_DOT);
+      double lv[13];
+      lv[0]=MathMin(InpSellZone+3.46,100.0); lv[1]=InpSellZone; lv[2]=InpSellBE; lv[3]=InpSellTP1;
+      lv[4]=InpSellTP2; lv[5]=InpSellTP3; lv[6]=50.0; lv[7]=InpBuyTP3; lv[8]=InpBuyTP2;
+      lv[9]=InpBuyTP1; lv[10]=InpBuyBE; lv[11]=InpBuyZone; lv[12]=MathMax(InpBuyZone-3.15,0.0);
+      string tx[13] = {"FULL SELL NOW","SELL ZONE","B.E","TP1","TP2","TP3","",
+                       "TP3","TP2","TP1","B.E","FULL BUY NOW","BUY 100%"};
+      IndicatorSetInteger(INDICATOR_LEVELS, 13);
+      for(int k=0; k<13; k++)
+        {
+         IndicatorSetDouble(INDICATOR_LEVELVALUE, k, lv[k]);
+         IndicatorSetString(INDICATOR_LEVELTEXT, k, tx[k]);
+         color c = (k<6) ? InpSellColor : (k==6 ? clrGray : InpBuyColor);
+         IndicatorSetInteger(INDICATOR_LEVELCOLOR, k, c);
+         IndicatorSetInteger(INDICATOR_LEVELSTYLE, k, (k==1 || k==11) ? STYLE_SOLID : STYLE_DOT);
+        }
      }
+   else
+      IndicatorSetInteger(INDICATOR_LEVELS, 0);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
       InpMode==OSC_DSS ? "IndibotOsc (DSS)" : "IndibotOsc (WaveTrend)");
