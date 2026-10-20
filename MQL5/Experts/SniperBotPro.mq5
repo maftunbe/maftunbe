@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.10"
+#property version   "3.20"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -234,6 +234,25 @@ void SetSlot(const int i, const bool use, const string name, const EIndMode m,
    g_ind[i].handle=INVALID_HANDLE; g_ind[i].vote=0;
   }
 
+// Chartdagi barcha oynalarni korib chiqib, nomida "needle" bolgan indikatorlarning
+// HAMMASINI olib tashlaydi. EA har qayta yuklanganda bir xil indikatorni ikkinchi marta
+// qoshishdan oldin chaqiriladi - aks holda eski nusxa IndicatorRelease bilan tozalanmay,
+// chartda abadiy qolib ketadi va qayta-qayta biriktirilganda ustma-ust koayveradi.
+void RemoveChartIndicatorsLike(const string needle)
+  {
+   if(StringLen(needle)<2) return;
+   int winTotal = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
+   for(int w=winTotal-1; w>=0; w--)
+     {
+      for(int k=(int)ChartIndicatorsTotal(0,w)-1; k>=0; k--)
+        {
+         string nm = ChartIndicatorName(0, w, k);
+         if(StringFind(nm, needle) >= 0)
+            ChartIndicatorDelete(0, w, nm);
+        }
+     }
+  }
+
 int OnInit()
   {
    SetSlot(0, InpUse1, InpName1, InpMode1, InpBufA1, InpBufB1, InpHi1, InpLo1, InpWeight1);
@@ -272,17 +291,27 @@ int OnInit()
    if(ok==0) { Print("Birorta indikator yuklanmadi"); return(INIT_FAILED); }
 
    //--- ishlatilayotgan indikatorlarni chartda ham korsatamiz (EA ozi uchun ulaganlariga qoshimcha)
+   // DIQQAT: avval shu nomdagi ESKI nusxalarni tozalaymiz - aks holda EA har safar
+   // qayta yuklanganda (qayta compile/qayta biriktirilganda) ustma-ust takrorlanib,
+   // bir xil indikator bir necha marta chartda korinib qoladi.
    if(InpShowOnChart)
      {
       if(g_ind[0].use && g_ind[0].handle!=INVALID_HANDLE)
+        {
+         RemoveChartIndicatorsLike(InpName1);
          ChartIndicatorAdd(0, 0, g_ind[0].handle);                       // asosiy grafikka (narx bilan birga)
+        }
       int win = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
       if(g_ind[1].use && g_ind[1].handle!=INVALID_HANDLE)
-        { ChartIndicatorAdd(0, win, g_ind[1].handle); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); }
+        {
+         RemoveChartIndicatorsLike(InpName2);
+         ChartIndicatorAdd(0, win, g_ind[1].handle); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
+        }
       // Indikator 3 (IndibotOsc) qarorni ichkarida hisoblaydi - bu faqat KORISH uchun,
       // .ex5 topilmasa yoki eskirgan bolsa jim otkaziladi, EA ishlashiga taqalmaydi.
       if(g_ind[2].use && StringLen(InpOscDisplayFile)>=2)
         {
+         RemoveChartIndicatorsLike(InpOscDisplayFile);
          h_oscDisplay = iCustom(_Symbol, _Period, InpOscDisplayFile);
          if(h_oscDisplay!=INVALID_HANDLE)
            { ChartIndicatorAdd(0, win, h_oscDisplay); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL); }
@@ -291,6 +320,8 @@ int OnInit()
         }
       if(g_ind[3].use)
         {
+         RemoveChartIndicatorsLike("Relative Vigor");
+         RemoveChartIndicatorsLike("Stochastic");
          ChartIndicatorAdd(0, win, h_rviMain);
          ChartIndicatorAdd(0, win, h_stoch4);
         }
