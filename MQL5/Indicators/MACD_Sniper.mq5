@@ -1,11 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                           MACD_Crossover.mq5     |
+//|                                             MACD_Sniper.mq5      |
 //|  Standart MACD (tez EMA - sekin EMA, signal chizigi).             |
 //|  Signal: MACD chizigi Signal chizigidan YUQORIGA otsa = BUY,      |
 //|          PASTGA otsa = SELL. Faqat yopilgan barda (repaint yoq).  |
 //|  Bu EA'dagi "MACD Divergence"dan FARQLI, sodda kesishish signali. |
 //+------------------------------------------------------------------+
-#property copyright "MACD Crossover"
+#property copyright "MACD Sniper"
 #property version   "1.00"
 #property indicator_separate_window
 #property indicator_buffers 8
@@ -89,7 +89,7 @@ int OnInit()
    for(int p=0; p<5; p++) PlotIndexSetInteger(p, PLOT_DRAW_BEGIN, warm);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
-      StringFormat("MACD Crossover (%d,%d,%d)", InpFastEMA, InpSlowEMA, InpSignalEMA));
+      StringFormat("MACD Sniper (%d,%d,%d)", InpFastEMA, InpSlowEMA, InpSignalEMA));
    IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
    return(INIT_SUCCEEDED);
   }
