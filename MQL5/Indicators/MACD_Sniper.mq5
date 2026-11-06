@@ -6,7 +6,7 @@
 //|  Bu EA'dagi "MACD Divergence"dan FARQLI, sodda kesishish signali. |
 //+------------------------------------------------------------------+
 #property copyright "MACD Sniper"
-#property version   "1.40"
+#property version   "1.41"
 #property indicator_separate_window
 #property indicator_buffers 10
 #property indicator_plots   7
@@ -99,10 +99,10 @@ int OnInit()
    SetIndexBuffer(3, BufHistClr, INDICATOR_COLOR_INDEX);
    SetIndexBuffer(4, BufBuy,     INDICATOR_DATA);
    SetIndexBuffer(5, BufSell,    INDICATOR_DATA);
-   SetIndexBuffer(6, EmaFast,    INDICATOR_CALCULATIONS);
-   SetIndexBuffer(7, EmaSlow,    INDICATOR_CALCULATIONS);
-   SetIndexBuffer(8, BufLevelHi, INDICATOR_DATA);
-   SetIndexBuffer(9, BufLevelLo, INDICATOR_DATA);
+   SetIndexBuffer(6, BufLevelHi, INDICATOR_DATA);          // chizma buferlari HAMMA hisoblash buferlaridan OLDIN bolishi shart
+   SetIndexBuffer(7, BufLevelLo, INDICATOR_DATA);
+   SetIndexBuffer(8, EmaFast,    INDICATOR_CALCULATIONS);
+   SetIndexBuffer(9, EmaSlow,    INDICATOR_CALCULATIONS);
 
    PlotIndexSetInteger(3, PLOT_ARROW, 233);
    PlotIndexSetInteger(4, PLOT_ARROW, 234);
