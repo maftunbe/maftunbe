@@ -6,10 +6,10 @@
 //|  Bu EA'dagi "MACD Divergence"dan FARQLI, sodda kesishish signali. |
 //+------------------------------------------------------------------+
 #property copyright "MACD Sniper"
-#property version   "1.30"
+#property version   "1.40"
 #property indicator_separate_window
-#property indicator_buffers 8
-#property indicator_plots   5
+#property indicator_buffers 10
+#property indicator_plots   7
 
 #property indicator_label1  "MACD"
 #property indicator_type1   DRAW_LINE
@@ -36,6 +36,18 @@
 #property indicator_color5  clrRed
 #property indicator_width5  2
 
+#property indicator_label6  "ZonaYuqori(SELL)"
+#property indicator_type6   DRAW_LINE
+#property indicator_color6  clrSilver
+#property indicator_style6  STYLE_DOT
+#property indicator_width6  1
+
+#property indicator_label7  "ZonaPast(BUY)"
+#property indicator_type7   DRAW_LINE
+#property indicator_color7  clrSilver
+#property indicator_style7  STYLE_DOT
+#property indicator_width7  1
+
 //============================= INPUTS ==============================//
 input group "=== MACD ==="
 input int      InpFastEMA   = 8;      // Tez EMA davri (kichik = tezroq, lekin ko'proq shovqin)
@@ -48,7 +60,7 @@ input bool     InpOnlyAboveZeroSell = false;  // SELL faqat nol chizigidan TEPAD
 input int      InpCooldownBars      = 5;      // Ikki signal orasidagi eng kam bar - tekis bozorda ketma-ket mayda kesishishlarni kamaytiradi
 
 input group "=== Daraja filtri (RSI uslubida 0-100) ==="
-input bool     InpUseLevelFilter = false;  // MACD'ni oxirgi N barga nisbatan 0-100 shkalaga otkazib, ekstremal zona filtri
+input bool     InpUseLevelFilter = true;   // MACD'ni oxirgi N barga nisbatan 0-100 shkalaga otkazib, ekstremal zona filtri
 input int      InpLevelLookback  = 100;    // Normallashtirish uchun necha bar (MACD'ning oz tarixi)
 input double   InpLevelSellZone  = 80.0;   // SELL faqat shu darajadan YUQORIDA (RSI 70 kabi)
 input double   InpLevelBuyZone   = 20.0;   // BUY faqat shu darajadan PASTDA (RSI 30 kabi)
@@ -56,6 +68,7 @@ input double   InpLevelBuyZone   = 20.0;   // BUY faqat shu darajadan PASTDA (RS
 input group "=== Korinish ==="
 input int      InpHistoryBars = 1500;  // Tarixda nechta bar uchun signal chizilsin
 input int      InpArrowRange  = 20;    // Strelka joyini hisoblash uchun necha barlik diapazon
+input double   InpHistScale   = 3.0;   // Gistogramma ustunlarini KATTALASHTIRISH (faqat korinish, signalga tasir qilmaydi)
 
 input group "=== Ogohlantirish ==="
 input bool     InpAlert = true;    // Terminal Alert
@@ -64,6 +77,7 @@ input bool     InpPush  = false;   // Telefonga push
 //============================ BUFFERS ==============================//
 double BufMacd[], BufSignal[], BufHist[], BufHistClr[], BufBuy[], BufSell[];
 double EmaFast[], EmaSlow[];
+double BufLevelHi[], BufLevelLo[];   // 80/20 zona chegaralari - oz tarixiga nisbatan dinamik chiziq
 
 string   PFX = "MACDX_";
 int      g_lastProcessed = -1;
@@ -87,14 +101,21 @@ int OnInit()
    SetIndexBuffer(5, BufSell,    INDICATOR_DATA);
    SetIndexBuffer(6, EmaFast,    INDICATOR_CALCULATIONS);
    SetIndexBuffer(7, EmaSlow,    INDICATOR_CALCULATIONS);
+   SetIndexBuffer(8, BufLevelHi, INDICATOR_DATA);
+   SetIndexBuffer(9, BufLevelLo, INDICATOR_DATA);
 
    PlotIndexSetInteger(3, PLOT_ARROW, 233);
    PlotIndexSetInteger(4, PLOT_ARROW, 234);
    PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(5, PLOT_EMPTY_VALUE, EMPTY_VALUE);
+   PlotIndexSetDouble(6, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
    int warm = InpSlowEMA + InpSignalEMA + 5;
    for(int p=0; p<5; p++) PlotIndexSetInteger(p, PLOT_DRAW_BEGIN, warm);
+   int warmLevel = MathMax(warm, InpLevelLookback);
+   PlotIndexSetInteger(5, PLOT_DRAW_BEGIN, warmLevel);
+   PlotIndexSetInteger(6, PLOT_DRAW_BEGIN, warmLevel);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
       StringFormat("MACD Sniper (%d,%d,%d)", InpFastEMA, InpSlowEMA, InpSignalEMA));
@@ -152,10 +173,24 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       EmaSlow[i]    = (i==0) ? close[i] : Ema(close[i], EmaSlow[i-1], InpSlowEMA);
       BufMacd[i]    = EmaFast[i]-EmaSlow[i];
       BufSignal[i]  = (i==0) ? BufMacd[i] : Ema(BufMacd[i], BufSignal[i-1], InpSignalEMA);
-      BufHist[i]    = BufMacd[i]-BufSignal[i];
-      BufHistClr[i] = (BufHist[i]>=0) ? 0 : 1;
+      double diff   = BufMacd[i]-BufSignal[i];
+      BufHist[i]    = diff*InpHistScale;   // faqat korinish uchun kattalashtirilgan - logika xom diff'dan foydalanadi
+      BufHistClr[i] = (diff>=0) ? 0 : 1;
       BufBuy[i]  = EMPTY_VALUE;
       BufSell[i] = EMPTY_VALUE;
+
+      // RSI uslubidagi 80/20 zona chegaralarini chartda chizish uchun - MACD'ning
+      // oz oxirgi InpLevelLookback bariga nisbatan dinamik hisoblanadi
+      int lf = MathMax(0, i-InpLevelLookback+1);
+      double lmn=BufMacd[lf], lmx=BufMacd[lf];
+      for(int k=lf+1; k<=i; k++)
+        {
+         if(BufMacd[k]<lmn) lmn=BufMacd[k];
+         if(BufMacd[k]>lmx) lmx=BufMacd[k];
+        }
+      double lrange = lmx-lmn;
+      BufLevelLo[i] = lmn + (InpLevelBuyZone/100.0)*lrange;
+      BufLevelHi[i] = lmn + (InpLevelSellZone/100.0)*lrange;
      }
 
    //--- kesishish signali FAQAT yopilgan barlarda (repaint yoq)
@@ -175,20 +210,12 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       if((crossUp || crossDown) && (i-g_lastSignalIdx) < InpCooldownBars)
         { crossUp=false; crossDown=false; }
 
-      // RSI uslubidagi daraja filtri: MACD chegarasiz bolgani uchun uni oz oxirgi
-      // N bariga nisbatan 0-100 ga otkazamiz, keyin BUY/SELL'ni shu zonaga bogliq qilamiz
+      // RSI uslubidagi daraja filtri: yuqoridagi BufLevelLo/BufLevelHi chiziqlariga
+      // nisbatan - BUY faqat past zonada, SELL faqat yuqori zonada kesishsa otadi
       if(InpUseLevelFilter && (crossUp || crossDown))
         {
-         int lf = MathMax(0, i-InpLevelLookback+1);
-         double lmn=BufMacd[lf], lmx=BufMacd[lf];
-         for(int k=lf; k<=i; k++)
-           {
-            lmn = MathMin(lmn, BufMacd[k]);
-            lmx = MathMax(lmx, BufMacd[k]);
-           }
-         double lvl = (lmx>lmn) ? (BufMacd[i]-lmn)/(lmx-lmn)*100.0 : 50.0;
-         if(crossUp   && lvl>InpLevelBuyZone)  crossUp   = false;
-         if(crossDown && lvl<InpLevelSellZone) crossDown = false;
+         if(crossUp   && BufMacd[i] > BufLevelLo[i]) crossUp   = false;
+         if(crossDown && BufMacd[i] < BufLevelHi[i]) crossDown = false;
         }
 
       if(crossUp || crossDown)
