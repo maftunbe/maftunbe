@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.20"
+#property version   "3.30"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -44,15 +44,14 @@ input double   InpHi1    = 0;      // LEVEL: yuqori chegara
 input double   InpLo1    = 0;      // LEVEL: quyi chegara
 input double   InpWeight1= 1.0;    // Vazn (ovoz salmogi, 0 = eslatma uchun, hisobga olinmaydi)
 
-input group "=== Indikator 2 ==="
-input bool     InpUse2   = false;
-input string   InpName2  = "";
-input EIndMode InpMode2  = MODE_DIR;
-input int      InpBufA2  = 0;
-input int      InpBufB2  = 0;
-input double   InpHi2    = 0;
-input double   InpLo2    = 0;
-input double   InpWeight2= 1.0;    // Vazn (ovoz salmogi)
+input group "=== Indikator 2: MACD Divergence (ICHKI, tashqi .ex5 kerak emas) ==="
+input bool     InpUse2          = false;  // 2-indikator (MACD divergence) yoqilgan/ochirilgan
+input int      InpMacdFast      = 12;     // MACD tez EMA davri
+input int      InpMacdSlow      = 26;     // MACD sekin EMA davri
+input int      InpMacdSignal    = 9;      // MACD signal EMA davri
+input int      InpMacdLookback  = 40;     // Divergence qidiriladigan bar oralig'i
+input int      InpMacdPivotWing = 3;      // Pivot (cho'qqi/tag) tasdiqlash uchun har tomonda necha bar
+input double   InpWeight2       = 1.0;    // Vazn (ovoz salmogi)
 
 input group "=== Indikator 3: IndibotOsc (ICHKI, tashqi .ex5 kerak emas) ==="
 input bool          InpUse3          = true;      // 3-indikator (IndibotOsc) yoqilgan/ochirilgan
@@ -199,6 +198,7 @@ int      g_day        = -1;
 long     g_tgOffset   = 0;
 ulong    g_seen[];                 // qayta ishlangan bitimlar (takrorlanmasligi uchun)
 int      h_rviMain = INVALID_HANDLE, h_stoch4 = INVALID_HANDLE;   // Indikator 4: ichki RVI+Stochastic
+int      h_macd = INVALID_HANDLE;   // Indikator 2: ichki MACD (divergence uchun)
 int      h_oscDisplay = INVALID_HANDLE;   // Indikator 3: faqat korish uchun (qarorga ishlatilmaydi)
 
 struct LossAlertRec { ulong ticket; int level; };
@@ -256,12 +256,12 @@ void RemoveChartIndicatorsLike(const string needle)
 int OnInit()
   {
    SetSlot(0, InpUse1, InpName1, InpMode1, InpBufA1, InpBufB1, InpHi1, InpLo1, InpWeight1);
-   SetSlot(1, InpUse2, InpName2, InpMode2, InpBufA2, InpBufB2, InpHi2, InpLo2, InpWeight2);
+   SetSlot(1, InpUse2, "MACD Divergence(ichki)", MODE_DIR, 0, 0, 0, 0, InpWeight2);
    SetSlot(2, InpUse3, "IndibotOsc(ichki)", MODE_ARROWS, 0, 1, 0, 0, InpWeight3);
    SetSlot(3, InpUse4, "RVI+Stochastic(ichki)", MODE_ARROWS, 0, 1, 0, 0, InpWeight4);
 
    int ok = 0;
-   for(int i=0; i<2; i++)
+   for(int i=0; i<1; i++)
      {
       if(!g_ind[i].use || StringLen(g_ind[i].name)<2) { g_ind[i].use=false; continue; }
       g_ind[i].handle = iCustom(_Symbol, _Period, g_ind[i].name);
@@ -269,6 +269,18 @@ int OnInit()
         {
          PrintFormat("Indikator yuklanmadi: %s. Nomini va kompilyatsiyani tekshiring.", g_ind[i].name);
          g_ind[i].use = false;
+        }
+      else ok++;
+     }
+
+   //--- Indikator 2: tashqi .ex5 shart emas - MACD shu yerda, ichkarida hisoblanadi (divergence uchun)
+   if(g_ind[1].use)
+     {
+      h_macd = iMACD(_Symbol, _Period, InpMacdFast, InpMacdSlow, InpMacdSignal, PRICE_CLOSE);
+      if(h_macd==INVALID_HANDLE)
+        {
+         Print("Indikator 2 (MACD) ishga tushmadi");
+         g_ind[1].use = false;
         }
       else ok++;
      }
@@ -302,10 +314,10 @@ int OnInit()
          ChartIndicatorAdd(0, 0, g_ind[0].handle);                       // asosiy grafikka (narx bilan birga)
         }
       int win = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
-      if(g_ind[1].use && g_ind[1].handle!=INVALID_HANDLE)
+      if(g_ind[1].use && h_macd!=INVALID_HANDLE)
         {
-         RemoveChartIndicatorsLike(InpName2);
-         ChartIndicatorAdd(0, win, g_ind[1].handle); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
+         RemoveChartIndicatorsLike("MACD");
+         ChartIndicatorAdd(0, win, h_macd); win=(int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
         }
       // Indikator 3 (IndibotOsc) qarorni ichkarida hisoblaydi - bu faqat KORISH uchun,
       // .ex5 topilmasa yoki eskirgan bolsa jim otkaziladi, EA ishlashiga taqalmaydi.
@@ -392,6 +404,7 @@ void OnDeinit(const int reason)
    if(h_rviMain!=INVALID_HANDLE) IndicatorRelease(h_rviMain);
    if(h_stoch4 !=INVALID_HANDLE) IndicatorRelease(h_stoch4);
    if(h_oscDisplay!=INVALID_HANDLE) IndicatorRelease(h_oscDisplay);
+   if(h_macd!=INVALID_HANDLE) IndicatorRelease(h_macd);
    ObjectsDeleteAll(0, PFX);
   }
 void OnTick() { }
@@ -600,6 +613,45 @@ int IbSignalAt(const int i, const double &fast[], const double &slow[],
    return(0);
   }
 
+//--- Indikator 2: MACD Divergence - ICHKI hisob-kitob -----------------------------
+// Narxning oxirgi ikki tasdiqlangan pivot (cho'qqi/tag)ini MACD asosiy chizig'idagi
+// mos nuqtalar bilan solishtiradi: narx yangi ekstremum qilsa-yu, MACD qilmasa -
+// divergence (kelishmovchilik), bu trend kuchsizlanayotganining belgisi.
+int AskMacdDivergence()
+  {
+   if(h_macd==INVALID_HANDLE) return(0);
+   int wing = MathMax(1, InpMacdPivotWing);
+   int need = MathMax(1,InpMacdLookback) + wing*2 + 5;
+
+   double macd[], hi[], lo[];
+   if(CopyBuffer(h_macd, 0, 1, need, macd) < need) return(0);   // MACD asosiy chizigi, shift=1 dan
+   if(CopyHigh(_Symbol,_Period,1,need,hi) < need) return(0);
+   if(CopyLow(_Symbol,_Period,1,need,lo)  < need) return(0);
+   ArraySetAsSeries(macd,true); ArraySetAsSeries(hi,true); ArraySetAsSeries(lo,true);
+   // seriyada 0-indeks = eng oxirgi yopilgan bar, indeks ortishi bilan eskiroq bar
+
+   int hiNew=-1, hiOld=-1, loNew=-1, loOld=-1;
+   for(int k=wing; k<need-wing; k++)
+     {
+      bool isHigh=true, isLow=true;
+      for(int w=1; w<=wing; w++)
+        {
+         if(hi[k] < hi[k-w] || hi[k] < hi[k+w]) isHigh=false;
+         if(lo[k] > lo[k-w] || lo[k] > lo[k+w]) isLow=false;
+        }
+      if(isHigh) { if(hiNew<0) hiNew=k; else if(hiOld<0) hiOld=k; }
+      if(isLow)  { if(loNew<0) loNew=k; else if(loOld<0) loOld=k; }
+      if(hiOld>=0 && loOld>=0) break;
+     }
+
+   int result=0;
+   if(hiNew>=0 && hiOld>=0 && hi[hiNew]>hi[hiOld] && macd[hiNew]<macd[hiOld])
+      result = -1;   // bearish divergence: narx balandroq cho'qqi, MACD pastroq
+   if(result==0 && loNew>=0 && loOld>=0 && lo[loNew]<lo[loOld] && macd[loNew]>macd[loOld])
+      result = 1;    // bullish divergence: narx pastroq tag, MACD balandroq
+   return(result);
+  }
+
 int AskIndibotOsc()
   {
    int warm = IbWarmBars();
@@ -701,6 +753,12 @@ void DrawInternalArrows()
    if(CopyLow(_Symbol,_Period,1,1,loA)  < 1) return;
    if(CopyHigh(_Symbol,_Period,1,1,hiA) < 1) return;
 
+   if(g_ind[1].use)
+     {
+      int v = AskMacdDivergence();
+      if(v>0)      DrawSignalArrow("IB2", barTime, loA[0], true);
+      else if(v<0) DrawSignalArrow("IB2", barTime, hiA[0], false);
+     }
    if(g_ind[2].use)
      {
       int v = AskIndibotOscFreshSignal();
@@ -719,6 +777,7 @@ void DrawInternalArrows()
 int AskIndicator(const int i)
   {
    if(!g_ind[i].use) return(0);
+   if(i==1) return(AskMacdDivergence());
    if(i==2) return(AskIndibotOsc());
    if(i==3) return(AskRviStoch4());
    double a[], b[];
