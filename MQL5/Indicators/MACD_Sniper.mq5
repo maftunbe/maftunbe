@@ -1,15 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                             MACD_Sniper.mq5      |
-//|  Standart MACD (tez EMA - sekin EMA, signal chizigi).             |
-//|  Signal: MACD chizigi Signal chizigidan YUQORIGA otsa = BUY,      |
-//|          PASTGA otsa = SELL. Faqat yopilgan barda (repaint yoq).  |
+//|  MACD (tez EMA - sekin EMA, signal chizigi) - RSI kabi 0-100      |
+//|  shkalada korsatiladi: MACD va Signal oz oxirgi N bariga nisbatan |
+//|  normallashtiriladi, 30/70 da qatiy gorizontal darajalar turadi.  |
+//|  Signal: MACD Signal'ni YUQORIGA kesib otsa = BUY, PASTGA = SELL. |
+//|  Faqat yopilgan barda (repaint yoq).                              |
 //|  Bu EA'dagi "MACD Divergence"dan FARQLI, sodda kesishish signali. |
 //+------------------------------------------------------------------+
 #property copyright "MACD Sniper"
-#property version   "1.41"
+#property version   "2.00"
 #property indicator_separate_window
-#property indicator_buffers 10
-#property indicator_plots   7
+#property indicator_buffers 11
+#property indicator_plots   5
+#property indicator_minimum -10
+#property indicator_maximum 110
 
 #property indicator_label1  "MACD"
 #property indicator_type1   DRAW_LINE
@@ -22,7 +26,7 @@
 #property indicator_width2  2
 
 #property indicator_label3  "Hist"
-#property indicator_type3   DRAW_COLOR_HISTOGRAM
+#property indicator_type3   DRAW_COLOR_HISTOGRAM2
 #property indicator_color3  clrLimeGreen,clrRed
 #property indicator_width3  2
 
@@ -36,18 +40,6 @@
 #property indicator_color5  clrRed
 #property indicator_width5  2
 
-#property indicator_label6  "ZonaYuqori(SELL)"
-#property indicator_type6   DRAW_LINE
-#property indicator_color6  clrSilver
-#property indicator_style6  STYLE_DOT
-#property indicator_width6  1
-
-#property indicator_label7  "ZonaPast(BUY)"
-#property indicator_type7   DRAW_LINE
-#property indicator_color7  clrSilver
-#property indicator_style7  STYLE_DOT
-#property indicator_width7  1
-
 //============================= INPUTS ==============================//
 input group "=== MACD ==="
 input int      InpFastEMA   = 8;      // Tez EMA davri (kichik = tezroq, lekin ko'proq shovqin)
@@ -55,29 +47,31 @@ input int      InpSlowEMA   = 17;     // Sekin EMA davri
 input int      InpSignalEMA = 5;      // Signal chizigi EMA davri
 
 input group "=== Signal filtri ==="
-input bool     InpOnlyBelowZeroBuy  = false;  // BUY faqat nol chizigidan PASTDA kesishsa
-input bool     InpOnlyAboveZeroSell = false;  // SELL faqat nol chizigidan TEPADA kesishsa
+input bool     InpOnlyBelowZeroBuy  = false;  // BUY faqat MACD nol chizigidan PASTDA kesishsa
+input bool     InpOnlyAboveZeroSell = false;  // SELL faqat MACD nol chizigidan TEPADA kesishsa
 input int      InpCooldownBars      = 5;      // Ikki signal orasidagi eng kam bar - tekis bozorda ketma-ket mayda kesishishlarni kamaytiradi
 
-input group "=== Daraja filtri (RSI uslubida 0-100) ==="
-input bool     InpUseLevelFilter = true;   // MACD'ni oxirgi N barga nisbatan 0-100 shkalaga otkazib, ekstremal zona filtri
-input int      InpLevelLookback  = 100;    // Normallashtirish uchun necha bar (MACD'ning oz tarixi)
-input double   InpLevelSellZone  = 80.0;   // SELL faqat shu darajadan YUQORIDA (RSI 70 kabi)
-input double   InpLevelBuyZone   = 20.0;   // BUY faqat shu darajadan PASTDA (RSI 30 kabi)
+input group "=== Daraja (RSI uslubida 0-100) ==="
+input int      InpLevelLookback  = 100;    // 0-100 ga otkazish uchun necha bar (MACD'ning oz tarixi)
+input bool     InpUseLevelFilter = true;   // BUY faqat past zonada, SELL faqat yuqori zonada
+input double   InpLevelSellZone  = 70.0;   // Yuqori daraja (RSI 70 kabi) - SELL shundan YUQORIDA
+input double   InpLevelBuyZone   = 30.0;   // Past daraja (RSI 30 kabi) - BUY shundan PASTDA
 
 input group "=== Korinish ==="
-input int      InpHistoryBars = 1500;  // Tarixda nechta bar uchun signal chizilsin
-input int      InpArrowRange  = 20;    // Strelka joyini hisoblash uchun necha barlik diapazon
-input double   InpHistScale   = 3.0;   // Gistogramma ustunlarini KATTALASHTIRISH (faqat korinish, signalga tasir qilmaydi)
+input int      InpHistoryBars = 1500;      // Tarixda nechta bar uchun signal chizilsin
+input double   InpHistScale   = 3.0;       // Gistogramma ustunlarini kattalashtirish (faqat korinish)
+input color    InpLevelColor  = clrGold;   // 30/70 daraja chiziqlari rangi
 
 input group "=== Ogohlantirish ==="
 input bool     InpAlert = true;    // Terminal Alert
 input bool     InpPush  = false;   // Telefonga push
 
 //============================ BUFFERS ==============================//
-double BufMacd[], BufSignal[], BufHist[], BufHistClr[], BufBuy[], BufSell[];
-double EmaFast[], EmaSlow[];
-double BufLevelHi[], BufLevelLo[];   // 80/20 zona chegaralari - oz tarixiga nisbatan dinamik chiziq
+// Chizma buferlari HAMMA hisoblash buferlaridan OLDIN bolishi shart
+double BufMacdN[], BufSigN[];                 // 0-100 dagi MACD va Signal (korinish)
+double BufHistA[], BufHistB[], BufHistClr[];  // 50 dan boshlanadigan gistogramma
+double BufBuy[], BufSell[];
+double EmaFast[], EmaSlow[], BufMacd[], BufSignal[];   // xom MACD - signal logikasi shundan
 
 string   PFX = "MACDX_";
 int      g_lastProcessed = -1;
@@ -87,39 +81,48 @@ datetime g_lastAlertTime = 0;
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   if(InpFastEMA<1 || InpSlowEMA<1 || InpSignalEMA<1 || InpFastEMA>=InpSlowEMA || InpHistoryBars<50)
+   if(InpFastEMA<1 || InpSlowEMA<1 || InpSignalEMA<1 || InpFastEMA>=InpSlowEMA ||
+      InpHistoryBars<50 || InpLevelLookback<10 || InpLevelBuyZone>=InpLevelSellZone)
      {
-      Print("Parametrlar notogri: tez EMA < sekin EMA bolishi, davrlar musbat bolishi kerak");
+      Print("Parametrlar notogri: tez EMA < sekin EMA, davrlar musbat, past daraja < yuqori daraja bolishi kerak");
       return(INIT_PARAMETERS_INCORRECT);
      }
 
-   SetIndexBuffer(0, BufMacd,    INDICATOR_DATA);
-   SetIndexBuffer(1, BufSignal,  INDICATOR_DATA);
-   SetIndexBuffer(2, BufHist,    INDICATOR_DATA);
-   SetIndexBuffer(3, BufHistClr, INDICATOR_COLOR_INDEX);
-   SetIndexBuffer(4, BufBuy,     INDICATOR_DATA);
-   SetIndexBuffer(5, BufSell,    INDICATOR_DATA);
-   SetIndexBuffer(6, BufLevelHi, INDICATOR_DATA);          // chizma buferlari HAMMA hisoblash buferlaridan OLDIN bolishi shart
-   SetIndexBuffer(7, BufLevelLo, INDICATOR_DATA);
-   SetIndexBuffer(8, EmaFast,    INDICATOR_CALCULATIONS);
-   SetIndexBuffer(9, EmaSlow,    INDICATOR_CALCULATIONS);
+   SetIndexBuffer(0,  BufMacdN,   INDICATOR_DATA);
+   SetIndexBuffer(1,  BufSigN,    INDICATOR_DATA);
+   SetIndexBuffer(2,  BufHistA,   INDICATOR_DATA);
+   SetIndexBuffer(3,  BufHistB,   INDICATOR_DATA);
+   SetIndexBuffer(4,  BufHistClr, INDICATOR_COLOR_INDEX);
+   SetIndexBuffer(5,  BufBuy,     INDICATOR_DATA);
+   SetIndexBuffer(6,  BufSell,    INDICATOR_DATA);
+   SetIndexBuffer(7,  EmaFast,    INDICATOR_CALCULATIONS);
+   SetIndexBuffer(8,  EmaSlow,    INDICATOR_CALCULATIONS);
+   SetIndexBuffer(9,  BufMacd,    INDICATOR_CALCULATIONS);
+   SetIndexBuffer(10, BufSignal,  INDICATOR_CALCULATIONS);
 
    PlotIndexSetInteger(3, PLOT_ARROW, 233);
    PlotIndexSetInteger(4, PLOT_ARROW, 234);
    PlotIndexSetDouble(3, PLOT_EMPTY_VALUE, EMPTY_VALUE);
    PlotIndexSetDouble(4, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-   PlotIndexSetDouble(5, PLOT_EMPTY_VALUE, EMPTY_VALUE);
-   PlotIndexSetDouble(6, PLOT_EMPTY_VALUE, EMPTY_VALUE);
 
-   int warm = InpSlowEMA + InpSignalEMA + 5;
+   int warm = MathMax(InpSlowEMA + InpSignalEMA + 5, InpLevelLookback);
    for(int p=0; p<5; p++) PlotIndexSetInteger(p, PLOT_DRAW_BEGIN, warm);
-   int warmLevel = MathMax(warm, InpLevelLookback);
-   PlotIndexSetInteger(5, PLOT_DRAW_BEGIN, warmLevel);
-   PlotIndexSetInteger(6, PLOT_DRAW_BEGIN, warmLevel);
+
+   // RSI kabi qatiy gorizontal darajalar: 30 / 50 / 70
+   IndicatorSetInteger(INDICATOR_LEVELS, 3);
+   IndicatorSetDouble (INDICATOR_LEVELVALUE, 0, InpLevelSellZone);
+   IndicatorSetDouble (INDICATOR_LEVELVALUE, 1, 50.0);
+   IndicatorSetDouble (INDICATOR_LEVELVALUE, 2, InpLevelBuyZone);
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, 0, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, 1, clrDimGray);
+   IndicatorSetInteger(INDICATOR_LEVELCOLOR, 2, InpLevelColor);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, 0, STYLE_DASH);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, 1, STYLE_DOT);
+   IndicatorSetInteger(INDICATOR_LEVELSTYLE, 2, STYLE_DASH);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
       StringFormat("MACD Sniper (%d,%d,%d)", InpFastEMA, InpSlowEMA, InpSignalEMA));
-   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
+   IndicatorSetInteger(INDICATOR_DIGITS, 1);
    return(INIT_SUCCEEDED);
   }
 
@@ -153,7 +156,7 @@ int OnCalculate(const int rates_total, const int prev_calculated,
                 const double &high[], const double &low[], const double &close[],
                 const long &tick_volume[], const long &volume[], const int &spread[])
   {
-   int warm = InpSlowEMA + InpSignalEMA + 5;
+   int warm = MathMax(InpSlowEMA + InpSignalEMA + 5, InpLevelLookback);
    if(rates_total < warm+5) return(0);
 
    // Barcha massivlar ODDIY tartibda: 0 = eng eski bar
@@ -166,42 +169,45 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       ObjectsDeleteAll(0, PFX);
      }
 
-   //--- MACD, Signal, Hist (joriy bar ham - faqat korinish uchun)
+   //--- xom MACD, keyin uni oz oxirgi InpLevelLookback bariga nisbatan 0-100 ga otkazish
    for(int i=start; i<rates_total; i++)
      {
-      EmaFast[i]    = (i==0) ? close[i] : Ema(close[i], EmaFast[i-1], InpFastEMA);
-      EmaSlow[i]    = (i==0) ? close[i] : Ema(close[i], EmaSlow[i-1], InpSlowEMA);
-      BufMacd[i]    = EmaFast[i]-EmaSlow[i];
-      BufSignal[i]  = (i==0) ? BufMacd[i] : Ema(BufMacd[i], BufSignal[i-1], InpSignalEMA);
-      double diff   = BufMacd[i]-BufSignal[i];
-      BufHist[i]    = diff*InpHistScale;   // faqat korinish uchun kattalashtirilgan - logika xom diff'dan foydalanadi
-      BufHistClr[i] = (diff>=0) ? 0 : 1;
-      BufBuy[i]  = EMPTY_VALUE;
-      BufSell[i] = EMPTY_VALUE;
+      EmaFast[i]   = (i==0) ? close[i] : Ema(close[i], EmaFast[i-1], InpFastEMA);
+      EmaSlow[i]   = (i==0) ? close[i] : Ema(close[i], EmaSlow[i-1], InpSlowEMA);
+      BufMacd[i]   = EmaFast[i]-EmaSlow[i];
+      BufSignal[i] = (i==0) ? BufMacd[i] : Ema(BufMacd[i], BufSignal[i-1], InpSignalEMA);
 
-      // RSI uslubidagi 80/20 zona chegaralarini chartda chizish uchun - MACD'ning
-      // oz oxirgi InpLevelLookback bariga nisbatan dinamik hisoblanadi
+      // MACD va Signal bitta shkalada bolishi uchun ikkalasining umumiy min/max'i
       int lf = MathMax(0, i-InpLevelLookback+1);
-      double lmn=BufMacd[lf], lmx=BufMacd[lf];
+      double mn = MathMin(BufMacd[lf], BufSignal[lf]);
+      double mx = MathMax(BufMacd[lf], BufSignal[lf]);
       for(int k=lf+1; k<=i; k++)
         {
-         if(BufMacd[k]<lmn) lmn=BufMacd[k];
-         if(BufMacd[k]>lmx) lmx=BufMacd[k];
+         mn = MathMin(mn, MathMin(BufMacd[k], BufSignal[k]));
+         mx = MathMax(mx, MathMax(BufMacd[k], BufSignal[k]));
         }
-      double lrange = lmx-lmn;
-      BufLevelLo[i] = lmn + (InpLevelBuyZone/100.0)*lrange;
-      BufLevelHi[i] = lmn + (InpLevelSellZone/100.0)*lrange;
+      double rng = mx-mn;
+      BufMacdN[i] = (rng>0) ? (BufMacd[i]-mn)/rng*100.0   : 50.0;
+      BufSigN[i]  = (rng>0) ? (BufSignal[i]-mn)/rng*100.0 : 50.0;
+
+      double d = BufMacdN[i]-BufSigN[i];
+      BufHistA[i]   = 50.0;
+      BufHistB[i]   = MathMax(0.0, MathMin(100.0, 50.0 + d*InpHistScale));
+      BufHistClr[i] = (d>=0) ? 0 : 1;
+
+      BufBuy[i]  = EMPTY_VALUE;
+      BufSell[i] = EMPTY_VALUE;
      }
 
    //--- kesishish signali FAQAT yopilgan barlarda (repaint yoq)
    int lastClosed = rates_total-2;
    int histFrom   = MathMax(warm, rates_total-InpHistoryBars);
    int from       = MathMax(g_lastProcessed+1, histFrom);
-   bool live       = (prev_calculated>0);
-   int rangeN      = MathMax(2, InpArrowRange);
+   bool live      = (prev_calculated>0);
 
    for(int i=MathMax(from,1); i<=lastClosed; i++)
      {
+      // kesishish xom qiymatdan - 0-100 ga otkazish har bar ichida tartibni ozgartirmaydi
       bool crossUp   = (BufMacd[i-1]<=BufSignal[i-1] && BufMacd[i]>BufSignal[i]);
       bool crossDown = (BufMacd[i-1]>=BufSignal[i-1] && BufMacd[i]<BufSignal[i]);
       if(InpOnlyBelowZeroBuy  && crossUp   && BufMacd[i]>0) crossUp   = false;
@@ -209,33 +215,18 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       // tekis/tebranuvchi bozorda ketma-ket mayda kesishishlarni bosib qoyish
       if((crossUp || crossDown) && (i-g_lastSignalIdx) < InpCooldownBars)
         { crossUp=false; crossDown=false; }
-
-      // RSI uslubidagi daraja filtri: yuqoridagi BufLevelLo/BufLevelHi chiziqlariga
-      // nisbatan - BUY faqat past zonada, SELL faqat yuqori zonada kesishsa otadi
-      if(InpUseLevelFilter && (crossUp || crossDown))
+      // RSI uslubida: BUY faqat 30 dan pastda, SELL faqat 70 dan yuqorida
+      if(InpUseLevelFilter)
         {
-         if(crossUp   && BufMacd[i] > BufLevelLo[i]) crossUp   = false;
-         if(crossDown && BufMacd[i] < BufLevelHi[i]) crossDown = false;
+         if(crossUp   && BufMacdN[i] > InpLevelBuyZone)  crossUp   = false;
+         if(crossDown && BufMacdN[i] < InpLevelSellZone) crossDown = false;
         }
 
       if(crossUp || crossDown)
         {
          g_lastSignalIdx = i;
-         // strelkani chiziqlardan ozgina pastga/tepaga qoyish uchun mahalliy
-         // diapazonga nisbatan dinamik masofa (MACD olchami instrumentga qarab turlicha)
-         int rf = MathMax(0, i-rangeN);
-         double hh=BufMacd[rf], ll=BufMacd[rf];
-         for(int k=rf; k<=i; k++)
-           {
-            hh = MathMax(hh, MathMax(BufMacd[k],BufSignal[k]));
-            ll = MathMin(ll, MathMin(BufMacd[k],BufSignal[k]));
-           }
-         double rng = hh-ll;
-         if(rng<=0) rng = MathAbs(BufMacd[i])*0.1 + 0.0000001;
-         double off = rng*0.12;
-
-         if(crossUp)   BufBuy[i]  = MathMin(BufMacd[i],BufSignal[i]) - off;
-         if(crossDown) BufSell[i] = MathMax(BufMacd[i],BufSignal[i]) + off;
+         if(crossUp)   BufBuy[i]  = MathMin(BufMacdN[i],BufSigN[i]) - 6.0;
+         if(crossDown) BufSell[i] = MathMax(BufMacdN[i],BufSigN[i]) + 6.0;
 
          if(live && time[i]!=g_lastAlertTime)
            {
