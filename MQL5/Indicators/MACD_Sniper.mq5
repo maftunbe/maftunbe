@@ -6,7 +6,7 @@
 //|  Bu EA'dagi "MACD Divergence"dan FARQLI, sodda kesishish signali. |
 //+------------------------------------------------------------------+
 #property copyright "MACD Sniper"
-#property version   "1.20"
+#property version   "1.30"
 #property indicator_separate_window
 #property indicator_buffers 8
 #property indicator_plots   5
@@ -46,6 +46,12 @@ input group "=== Signal filtri ==="
 input bool     InpOnlyBelowZeroBuy  = false;  // BUY faqat nol chizigidan PASTDA kesishsa
 input bool     InpOnlyAboveZeroSell = false;  // SELL faqat nol chizigidan TEPADA kesishsa
 input int      InpCooldownBars      = 5;      // Ikki signal orasidagi eng kam bar - tekis bozorda ketma-ket mayda kesishishlarni kamaytiradi
+
+input group "=== Daraja filtri (RSI uslubida 0-100) ==="
+input bool     InpUseLevelFilter = false;  // MACD'ni oxirgi N barga nisbatan 0-100 shkalaga otkazib, ekstremal zona filtri
+input int      InpLevelLookback  = 100;    // Normallashtirish uchun necha bar (MACD'ning oz tarixi)
+input double   InpLevelSellZone  = 80.0;   // SELL faqat shu darajadan YUQORIDA (RSI 70 kabi)
+input double   InpLevelBuyZone   = 20.0;   // BUY faqat shu darajadan PASTDA (RSI 30 kabi)
 
 input group "=== Korinish ==="
 input int      InpHistoryBars = 1500;  // Tarixda nechta bar uchun signal chizilsin
@@ -168,6 +174,22 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       // tekis/tebranuvchi bozorda ketma-ket mayda kesishishlarni bosib qoyish
       if((crossUp || crossDown) && (i-g_lastSignalIdx) < InpCooldownBars)
         { crossUp=false; crossDown=false; }
+
+      // RSI uslubidagi daraja filtri: MACD chegarasiz bolgani uchun uni oz oxirgi
+      // N bariga nisbatan 0-100 ga otkazamiz, keyin BUY/SELL'ni shu zonaga bogliq qilamiz
+      if(InpUseLevelFilter && (crossUp || crossDown))
+        {
+         int lf = MathMax(0, i-InpLevelLookback+1);
+         double lmn=BufMacd[lf], lmx=BufMacd[lf];
+         for(int k=lf; k<=i; k++)
+           {
+            lmn = MathMin(lmn, BufMacd[k]);
+            lmx = MathMax(lmx, BufMacd[k]);
+           }
+         double lvl = (lmx>lmn) ? (BufMacd[i]-lmn)/(lmx-lmn)*100.0 : 50.0;
+         if(crossUp   && lvl>InpLevelBuyZone)  crossUp   = false;
+         if(crossDown && lvl<InpLevelSellZone) crossDown = false;
+        }
 
       if(crossUp || crossDown)
         {
