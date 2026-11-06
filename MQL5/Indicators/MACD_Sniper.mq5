@@ -8,7 +8,7 @@
 //|  Bu EA'dagi "MACD Divergence"dan FARQLI, sodda kesishish signali. |
 //+------------------------------------------------------------------+
 #property copyright "MACD Sniper"
-#property version   "2.00"
+#property version   "2.01"
 #property indicator_separate_window
 #property indicator_buffers 11
 #property indicator_plots   5
@@ -44,7 +44,7 @@
 input group "=== MACD ==="
 input int      InpFastEMA   = 8;      // Tez EMA davri (kichik = tezroq, lekin ko'proq shovqin)
 input int      InpSlowEMA   = 17;     // Sekin EMA davri
-input int      InpSignalEMA = 5;      // Signal chizigi EMA davri
+input int      InpSignalEMA = 9;      // Signal chizigi EMA davri (kichik = MACD'ga yopishib, tez-tez kesishadi)
 
 input group "=== Signal filtri ==="
 input bool     InpOnlyBelowZeroBuy  = false;  // BUY faqat MACD nol chizigidan PASTDA kesishsa
