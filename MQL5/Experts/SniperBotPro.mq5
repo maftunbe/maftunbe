@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.41"
+#property version   "3.42"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -811,8 +811,10 @@ void DrawInternalArrows()
      {
       datetime dt1,dt2; double dp1,dp2,dm1,dm2;
       int v = AskMacdDivergenceDetail(dt1,dt2,dp1,dp2,dm1,dm2);
-      if(v>0)      DrawSignalArrow("IB2", barTime, loA[0], true);
-      else if(v<0) DrawSignalArrow("IB2", barTime, hiA[0], false);
+      // strelka "bugungi" barga emas, divergensiya topilgan ASL pivot (t2/p2) ga chizilsin -
+      // shunda u diagonal chiziq bilan mos tushadi va pivot ozgarmaguncha qayta chizilmaydi
+      if(v>0)      DrawSignalArrow("IB2", dt2, dp2, true);
+      else if(v<0) DrawSignalArrow("IB2", dt2, dp2, false);
       if(v!=0)     DrawDivergenceLines(v, dt1,dt2,dp1,dp2,dm1,dm2);
      }
    if(g_ind[2].use)
