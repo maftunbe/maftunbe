@@ -6,7 +6,7 @@
 //|  Bu EA'dagi "MACD Divergence"dan FARQLI, sodda kesishish signali. |
 //+------------------------------------------------------------------+
 #property copyright "MACD Sniper"
-#property version   "1.00"
+#property version   "1.10"
 #property indicator_separate_window
 #property indicator_buffers 8
 #property indicator_plots   5
@@ -45,6 +45,7 @@ input int      InpSignalEMA = 9;      // Signal chizigi EMA davri
 input group "=== Signal filtri ==="
 input bool     InpOnlyBelowZeroBuy  = false;  // BUY faqat nol chizigidan PASTDA kesishsa
 input bool     InpOnlyAboveZeroSell = false;  // SELL faqat nol chizigidan TEPADA kesishsa
+input int      InpCooldownBars      = 5;      // Ikki signal orasidagi eng kam bar - tekis bozorda ketma-ket mayda kesishishlarni kamaytiradi
 
 input group "=== Korinish ==="
 input int      InpHistoryBars = 1500;  // Tarixda nechta bar uchun signal chizilsin
@@ -60,6 +61,7 @@ double EmaFast[], EmaSlow[];
 
 string   PFX = "MACDX_";
 int      g_lastProcessed = -1;
+int      g_lastSignalIdx = -1000000;   // cooldown uchun - oxirgi signal bergan bar indeksi
 datetime g_lastAlertTime = 0;
 
 //+------------------------------------------------------------------+
@@ -115,6 +117,7 @@ void Notify(const string msg)
 void ResetState()
   {
    g_lastProcessed = -1;
+   g_lastSignalIdx = -1000000;
   }
 
 //+------------------------------------------------------------------+
@@ -162,9 +165,13 @@ int OnCalculate(const int rates_total, const int prev_calculated,
       bool crossDown = (BufMacd[i-1]>=BufSignal[i-1] && BufMacd[i]<BufSignal[i]);
       if(InpOnlyBelowZeroBuy  && crossUp   && BufMacd[i]>0) crossUp   = false;
       if(InpOnlyAboveZeroSell && crossDown && BufMacd[i]<0) crossDown = false;
+      // tekis/tebranuvchi bozorda ketma-ket mayda kesishishlarni bosib qoyish
+      if((crossUp || crossDown) && (i-g_lastSignalIdx) < InpCooldownBars)
+        { crossUp=false; crossDown=false; }
 
       if(crossUp || crossDown)
         {
+         g_lastSignalIdx = i;
          // strelkani chiziqlardan ozgina pastga/tepaga qoyish uchun mahalliy
          // diapazonga nisbatan dinamik masofa (MACD olchami instrumentga qarab turlicha)
          int rf = MathMax(0, i-rangeN);
