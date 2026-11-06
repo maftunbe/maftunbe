@@ -7,7 +7,7 @@
 //|  - Narx grafigida va ossillyatorda signal qutilari               |
 //+------------------------------------------------------------------+
 #property copyright "Indibot logic rebuild"
-#property version   "1.20"
+#property version   "1.21"
 #property indicator_separate_window
 #property indicator_minimum 0
 #property indicator_maximum 100
@@ -48,9 +48,9 @@ enum ENUM_OSC_MODE
 //============================= INPUTS ==============================//
 input group "=== Ossillyator ==="
 input ENUM_OSC_MODE InpMode       = OSC_DSS; // Ossillyator turi
-input int      InpPDS             = 40;      // DSS: Stochastic davri (swing o'lchamiga mos bo'lsin)
-input int      InpEmaLen          = 12;      // DSS: EMA silliqlash
-input int      InpTriggerLen      = 5;       // DSS: signal chizig'i EMA
+input int      InpPDS             = 21;      // DSS: Stochastic davri (kichik = tezroq, lekin ko'proq shovqin)
+input int      InpEmaLen          = 8;       // DSS: EMA silliqlash
+input int      InpTriggerLen      = 3;       // DSS: signal chizig'i EMA
 input int      InpChannelLen      = 10;      // WaveTrend: n1 (Channel)
 input int      InpAverageLen      = 21;      // WaveTrend: n2 (Average)
 input int      InpSignalLen       = 4;       // WaveTrend: signal SMA

@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.40"
+#property version   "3.41"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -56,9 +56,9 @@ input double   InpWeight2       = 1.0;    // Vazn (ovoz salmogi)
 input group "=== Indikator 3: IndibotOsc (ICHKI, tashqi .ex5 kerak emas) ==="
 input bool          InpUse3          = true;      // 3-indikator (IndibotOsc) yoqilgan/ochirilgan
 input ENUM_OSC_MODE InpOscMode       = OSC_DSS;    // Ossillyator turi
-input int           InpOscPDS        = 40;         // DSS: Stochastic davri (swing olchamiga mos bolsin)
-input int           InpOscEmaLen     = 12;         // DSS: EMA silliqlash
-input int           InpOscTrigLen    = 5;          // DSS: signal chizigi EMA
+input int           InpOscPDS        = 21;         // DSS: Stochastic davri (kichik = tezroq, lekin ko'proq shovqin)
+input int           InpOscEmaLen     = 8;          // DSS: EMA silliqlash
+input int           InpOscTrigLen    = 3;          // DSS: signal chizigi EMA
 input int           InpOscChanLen    = 10;         // WaveTrend: n1 (Channel)
 input int           InpOscAvgLen     = 21;         // WaveTrend: n2 (Average)
 input int           InpOscSigLen     = 4;          // WaveTrend: signal SMA
