@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.43"
+#property version   "3.44"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -755,15 +755,18 @@ int AskIndibotOscFreshSignal()
 
 //--- Indikator 4: RVI (asosiy/signal) va Stochastic (%K/%D) shu yerda ichkarida hisoblanadi -
 // tashqi .ex5 kerak emas. Ikkisi bir yonalishda kelishgandagina +1/-1 qaytaradi.
-int AskRviStoch4()
+int AskRviStoch4() { return(AskRviStoch4At(1)); }
+
+// shift-barda RVI va Stochastic kelishgan HOLATI (har barda takrorlanadi, hodisa emas)
+int AskRviStoch4At(const int shift)
   {
    double rviMain[], rviSig[], k[], d[];
    ArraySetAsSeries(rviMain,true); ArraySetAsSeries(rviSig,true);
    ArraySetAsSeries(k,true); ArraySetAsSeries(d,true);
-   if(CopyBuffer(h_rviMain, 0, 1, 1, rviMain) < 1) return(0);
-   if(CopyBuffer(h_rviMain, 1, 1, 1, rviSig)  < 1) return(0);
-   if(CopyBuffer(h_stoch4,  0, 1, 1, k)       < 1) return(0);
-   if(CopyBuffer(h_stoch4,  1, 1, 1, d)       < 1) return(0);
+   if(CopyBuffer(h_rviMain, 0, shift, 1, rviMain) < 1) return(0);
+   if(CopyBuffer(h_rviMain, 1, shift, 1, rviSig)  < 1) return(0);
+   if(CopyBuffer(h_stoch4,  0, shift, 1, k)       < 1) return(0);
+   if(CopyBuffer(h_stoch4,  1, shift, 1, d)       < 1) return(0);
 
    int rviVote = (rviMain[0]>rviSig[0]) ? 1 : ((rviMain[0]<rviSig[0]) ? -1 : 0);
    int stoVote = (k[0]>d[0]) ? 1 : ((k[0]<d[0]) ? -1 : 0);
@@ -825,7 +828,9 @@ void DrawInternalArrows()
      }
    if(g_ind[3].use)
      {
-      int v = AskRviStoch4();
+      // faqat holat ozgargan barda - aks holda kelishuv davom etgan har barga strelka tushardi
+      int v = AskRviStoch4At(1);
+      if(v==AskRviStoch4At(2)) v = 0;
       if(v>0)      DrawSignalArrow("IB4", barTime, loA[0], true);
       else if(v<0) DrawSignalArrow("IB4", barTime, hiA[0], false);
      }
