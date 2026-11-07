@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.42"
+#property version   "3.43"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -1296,6 +1296,8 @@ void CheckLossAlerts()
          Send(StringFormat("ZARAR OGOHLANTIRISHI: pozitsiya #%d, zarar -%.0f USD ga yetdi (%.0f/%.0f)",
               (int)t, threshold, threshold, InpLossMax));
         }
+      // Send() har xabarda 7 s gacha kutishi mumkin - eski indeksga ishonmay, qayta topamiz
+      idx = FindLossAlert(t);
       if(idx>=0) g_lossAlert[idx].level=level;
       else { int n=ArraySize(g_lossAlert); ArrayResize(g_lossAlert,n+1); g_lossAlert[n].ticket=t; g_lossAlert[n].level=level; }
      }
