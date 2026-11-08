@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.45"
+#property version   "3.46"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -45,7 +45,7 @@ input double   InpLo1    = 0;      // LEVEL: quyi chegara
 input double   InpWeight1= 1.0;    // Vazn (ovoz salmogi, 0 = eslatma uchun, hisobga olinmaydi)
 
 input group "=== Indikator 2: MACD Divergence (ICHKI, tashqi .ex5 kerak emas) ==="
-input bool     InpUse2          = false;  // 2-indikator (MACD divergence) yoqilgan/ochirilgan
+input bool     InpUse2          = true;   // 2-indikator (MACD divergence) yoqilgan/ochirilgan
 input int      InpMacdFast      = 12;     // MACD tez EMA davri
 input int      InpMacdSlow      = 26;     // MACD sekin EMA davri
 input int      InpMacdSignal    = 9;      // MACD signal EMA davri
