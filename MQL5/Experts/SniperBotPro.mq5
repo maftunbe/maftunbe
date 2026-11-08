@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.44"
+#property version   "3.45"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -1001,39 +1001,7 @@ void DrawPanel()
      }
   }
 
-//========================= TAHLIL (CHART) ===========================//
-// Statistika paneli (chap yuqori) bilan toqnashmasligi uchun chart'ning ong
-// yuqori burchagiga chiqariladi.
-void AnalysisRow(const int r, const string txt, const color c)
-  {
-   string nm = PFX+"AN"+IntegerToString(r);
-   if(ObjectFind(0,nm)<0)
-     {
-      ObjectCreate(0,nm,OBJ_LABEL,0,0,0);
-      ObjectSetInteger(0,nm,OBJPROP_CORNER,CORNER_RIGHT_UPPER);
-      ObjectSetInteger(0,nm,OBJPROP_ANCHOR,ANCHOR_RIGHT_UPPER);
-      ObjectSetString (0,nm,OBJPROP_FONT,"Consolas");
-      ObjectSetInteger(0,nm,OBJPROP_SELECTABLE,false);
-      ObjectSetInteger(0,nm,OBJPROP_HIDDEN,true);
-     }
-   ObjectSetInteger(0,nm,OBJPROP_XDISTANCE,10);
-   ObjectSetInteger(0,nm,OBJPROP_YDISTANCE,22 + r*(InpPanelFont+6));
-   ObjectSetInteger(0,nm,OBJPROP_FONTSIZE,InpPanelFont);
-   ObjectSetInteger(0,nm,OBJPROP_COLOR,c);
-   ObjectSetString (0,nm,OBJPROP_TEXT,txt);
-  }
-
-// Berilgan tahlil matnini (satr-satr) chartning ong yuqori burchagiga chiqaradi.
-void ShowChartAnalysis(const string text)
-  {
-   for(int i=0;i<40;i++) ObjectDelete(0, PFX+"AN"+IntegerToString(i));
-   string lines[];
-   int n = StringSplit(text, (ushort)'\n', lines);
-   for(int i=0;i<n && i<40;i++)
-      AnalysisRow(i, lines[i], C'190,195,205');
-   ChartRedraw(0);
-  }
-
+//============================ TAHLIL ================================//
 // Joriy holatning mustaqil tahlili (biror ochiq savdoga bog'liq emas) -
 // /tahlil buyrugi va "Tahlil" tugmasi shuni ishlatadi.
 string BuildAnalysis()
@@ -1164,8 +1132,6 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
         }
       Send(msg);
       SendChartShot(msg);
-      // Savdo ochilgach tahlil darhol chartga (ong yuqori burchakka) chiqariladi
-      ShowChartAnalysis(msg);
       JournalWrite(StringFormat("OPEN;%s;%s;%.2f;%s;%d;%d;%s",
            TimeToString(TimeCurrent()), (dir>0?"BUY":"SELL"), vol,
            DoubleToString(price,_Digits), agree, total, rec.detail));
@@ -1869,12 +1835,7 @@ void HandleCmd(string raw)
      }
    else if(StringFind(cmd,"/list")==0 || StringFind(cmd,"/positions")==0) SendPositions();
    else if(StringFind(cmd,"/report")==0)     Send(BuildReport());
-   else if(StringFind(cmd,"/tahlil")==0)
-     {
-      string analysis = BuildAnalysis();
-      Send(analysis);
-      ShowChartAnalysis(analysis);
-     }
+   else if(StringFind(cmd,"/tahlil")==0)     Send(BuildAnalysis());
    else if(StringFind(cmd,"/ai")==0)
      {
       if(!InpUseAI) { Send("AI ochirilgan. EA sozlamalarida InpUseAI ni yoqing."); }
@@ -1900,7 +1861,7 @@ void HandleCmd(string raw)
    else if(StringFind(cmd,"/menu")==0)
       SendKeyboard("Tugmalar paneli yangilandi");
    else if(StringFind(cmd,"/help")==0 || StringFind(cmd,"/start")==0)
-      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/report - statistika hisoboti\n/tahlil - joriy tahlil (indikatorlar + AI), chartga ham chiqadi\n/ai savol - AI'dan erkin savol sorash\n/mute, /unmute - xabarlarni vaqtincha ochirish/yoqish\n/add_on, /add_off - averaging\n/menu - panelni qayta chizish");
+      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/report - statistika hisoboti\n/tahlil - joriy tahlil (indikatorlar + AI)\n/ai savol - AI'dan erkin savol sorash\n/mute, /unmute - xabarlarni vaqtincha ochirish/yoqish\n/add_on, /add_off - averaging\n/menu - panelni qayta chizish");
   }
 
 // Update blokidan "chat":{"id":N...} ni ajratib oladi. Topilmasa 0 qaytaradi.
