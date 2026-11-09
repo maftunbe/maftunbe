@@ -11,7 +11,7 @@
 //+------------------------------------------------------------------+
 #property copyright "SniperBotPro"
 #include <Trade\Trade.mqh>
-#property version   "3.46"
+#property version   "3.47"
 #define EA_MAGIC 777001
 
 enum EIndMode
@@ -85,6 +85,7 @@ input double   InpWeight4   = 1.0;     // Vazn (ovoz salmogi)
 input group "=== Umumiy ==="
 input bool     InpShowOnChart= true;   // Barcha ishlatilayotgan indikatorlarni chartda korsatish (avtomatik)
 input bool     InpDrawSignalArrows=true; // Ichki hisoblangan 3,4-indikatorlar signal bergan barga narx grafigida strelka chizsin
+input int      InpArrowGapBars = 6;    // Bitta indikatorning bir xil yonalishdagi ikki strelkasi orasidagi eng kam bar
 input int      InpLookback   = 3;      // ARROWS rejimi: signal necha bar ichida bolgani hisoblansin
 input long     InpMagicWatch = -1;     // Faqat shu magic (-1 = hamma savdolar)
 input bool     InpUsePush    = true;   // MT5 mobilga push
@@ -149,10 +150,6 @@ input long     InpShotChart  = 0;      // Qaysi chart (0 = EA turgan chart). ID 
 input int      InpShotW      = 1280;   // Rasm eni (piksel)
 input int      InpShotH      = 720;    // Rasm boyi (piksel)
 input int      InpPollSec    = 3;      // Telegram buyruqlarini necha soniyada tekshirish
-input bool     InpPanel      = true;   // Chartda statistika paneli
-input int      InpPanelX     = 10;
-input int      InpPanelY     = 22;
-input int      InpPanelFont  = 9;
 
 //============================== STATE ==============================//
 struct IndSlot
@@ -209,6 +206,8 @@ struct NoRetradeRec { double price; int dir; };
 NoRetradeRec g_noRetrade[];         // foyda bilan yopilgan narx+yonalish (kun oxirigacha)
 
 datetime g_lastArrowBar = 0;   // ichki indikator strelkalari oxirgi tekshirilgan bar vaqti
+datetime g_arrowTime[4];       // har indikatorning oxirgi strelkasi vaqti va yonalishi
+int      g_arrowDir[4];
 datetime g_lastReverse = 0;
 int      g_okCount    = 0;
 bool     g_startupSent = false;   // Telegram'ga "ishga tushdi" xabari faqat bir marta, kechiktirib yuboriladi
@@ -256,6 +255,7 @@ void RemoveChartIndicatorsLike(const string needle)
 
 int OnInit()
   {
+   ArrayInitialize(g_arrowTime, 0); ArrayInitialize(g_arrowDir, 0);
    SetSlot(0, InpUse1, InpName1, InpMode1, InpBufA1, InpBufB1, InpHi1, InpLo1, InpWeight1);
    SetSlot(1, InpUse2, "MACD Divergence(ichki)", MODE_DIR, 0, 0, 0, 0, InpWeight2);
    SetSlot(2, InpUse3, "IndibotOsc(ichki)", MODE_ARROWS, 0, 1, 0, 0, InpWeight3);
@@ -795,6 +795,16 @@ void DrawSignalArrow(const string tag, const datetime t, const double price, con
    ObjectSetString (0, nm, OBJPROP_TOOLTIP, tag+" "+(buy?"BUY":"SELL"));
   }
 
+// Bitta indikator bir yonalishda ketma-ket strelka chizmasligi uchun: oxirgi shu
+// yonalishdagi strelkadan InpArrowGapBars bar otmagan bolsa - chizilmaydi.
+bool ArrowAllowed(const int slot, const int dir, const datetime t)
+  {
+   if(dir==g_arrowDir[slot] && (long)(t-g_arrowTime[slot]) < (long)InpArrowGapBars*PeriodSeconds())
+      return(false);
+   g_arrowDir[slot]=dir; g_arrowTime[slot]=t;
+   return(true);
+  }
+
 // Har yangi yopilgan barda bir marta: Indikator 3 (IndibotOsc) va Indikator 4
 // (RVI+Stochastic) o'sha bardagi signalini tekshiradi va topsa strelka chizadi.
 void DrawInternalArrows()
@@ -816,6 +826,7 @@ void DrawInternalArrows()
       int v = AskMacdDivergenceDetail(dt1,dt2,dp1,dp2,dm1,dm2);
       // strelka "bugungi" barga emas, divergensiya topilgan ASL pivot (t2/p2) ga chizilsin -
       // shunda u diagonal chiziq bilan mos tushadi va pivot ozgarmaguncha qayta chizilmaydi
+      if(v!=0 && dt2!=g_arrowTime[1] && !ArrowAllowed(1, v, dt2)) v = 0;
       if(v>0)      DrawSignalArrow("IB2", dt2, dp2, true);
       else if(v<0) DrawSignalArrow("IB2", dt2, dp2, false);
       if(v!=0)     DrawDivergenceLines(v, dt1,dt2,dp1,dp2,dm1,dm2);
@@ -823,6 +834,7 @@ void DrawInternalArrows()
    if(g_ind[2].use)
      {
       int v = AskIndibotOscFreshSignal();
+      if(v!=0 && !ArrowAllowed(2, v, barTime)) v = 0;
       if(v>0)      DrawSignalArrow("IB3", barTime, loA[0], true);
       else if(v<0) DrawSignalArrow("IB3", barTime, hiA[0], false);
      }
@@ -831,6 +843,7 @@ void DrawInternalArrows()
       // faqat holat ozgargan barda - aks holda kelishuv davom etgan har barga strelka tushardi
       int v = AskRviStoch4At(1);
       if(v==AskRviStoch4At(2)) v = 0;
+      if(v!=0 && !ArrowAllowed(3, v, barTime)) v = 0;
       if(v>0)      DrawSignalArrow("IB4", barTime, loA[0], true);
       else if(v<0) DrawSignalArrow("IB4", barTime, hiA[0], false);
      }
@@ -953,52 +966,6 @@ string BuildReport()
          t += "  qarshi bolganda: malumot yoq\n";
      }
    return(t);
-  }
-
-//============================ PANEL ================================//
-void Row(const int r, const string txt, const color c)
-  {
-   string nm = PFX+"R"+IntegerToString(r);
-   if(ObjectFind(0,nm)<0)
-     {
-      ObjectCreate(0,nm,OBJ_LABEL,0,0,0);
-      ObjectSetInteger(0,nm,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-      ObjectSetString (0,nm,OBJPROP_FONT,"Consolas");
-      ObjectSetInteger(0,nm,OBJPROP_SELECTABLE,false);
-      ObjectSetInteger(0,nm,OBJPROP_HIDDEN,true);
-     }
-   ObjectSetInteger(0,nm,OBJPROP_XDISTANCE,InpPanelX);
-   ObjectSetInteger(0,nm,OBJPROP_YDISTANCE,InpPanelY + r*(InpPanelFont+6));
-   ObjectSetInteger(0,nm,OBJPROP_FONTSIZE,InpPanelFont);
-   ObjectSetInteger(0,nm,OBJPROP_COLOR,c);
-   ObjectSetString (0,nm,OBJPROP_TEXT,txt);
-  }
-
-void DrawPanel()
-  {
-   if(!InpPanel) return;
-   int used=0; for(int i=0;i<4;i++) if(g_ind[i].use) used++;
-
-   Row(0, "SniperBotPro - EA ni nazorat qilish", C'150,155,165');
-   // hozirgi holat: har indikator alohida qatorda
-   int row = 1;
-   for(int i=0;i<4;i++)
-     {
-      if(!g_ind[i].use) continue;
-      g_ind[i].vote = AskIndicator(i);
-      string sig = (g_ind[i].vote>0) ? "BUY" : ((g_ind[i].vote<0) ? "SELL" : "signal yoq");
-      color  c   = (g_ind[i].vote>0) ? C'0,200,110' : ((g_ind[i].vote<0) ? C'220,70,80' : C'130,135,145');
-      Row(row++, StringFormat("%-26s %s", g_ind[i].name, sig), c);
-     }
-   Row(row++, StringFormat("%-14s %6s %6s %9s", "tasdiq", "savdo", "WR", "natija"), C'150,155,165');
-   for(int k=used; k>=0; k--)
-     {
-      if(s_cnt[k]==0) continue;
-      double wr = 100.0*s_win[k]/s_cnt[k];
-      color c = (wr>=50) ? C'0,200,110' : C'220,70,80';
-      Row(row++, StringFormat("%d/%d indikator %6d %5.0f%% %+9.2f",
-          k, used, s_cnt[k], wr, s_sum[k]), c);
-     }
   }
 
 //============================ TAHLIL ================================//
@@ -1186,7 +1153,6 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
       if(InpShotOnClose) SendChartShot(cmsg);
       JournalWrite(StringFormat("CLOSE;%s;%.2f;%s;%d;%d",
            TimeToString(TimeCurrent()), net, DoubleToString(price,_Digits), agree, total));
-      DrawPanel();
      }
   }
 
@@ -1861,7 +1827,7 @@ void HandleCmd(string raw)
    else if(StringFind(cmd,"/menu")==0)
       SendKeyboard("Tugmalar paneli yangilandi");
    else if(StringFind(cmd,"/help")==0 || StringFind(cmd,"/start")==0)
-      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/report - statistika hisoboti\n/tahlil - joriy tahlil (indikatorlar + AI)\n/ai savol - AI'dan erkin savol sorash\n/mute, /unmute - xabarlarni vaqtincha ochirish/yoqish\n/add_on, /add_off - averaging\n/menu - panelni qayta chizish");
+      SendKeyboard("Buyruqlar:\n/list - pozitsiyalar, har birining foyda/zarari\n/close 1 - 1-pozitsiyani yopish\n/tp 30 - hamma savdoga 30 USD\n/tp 2 45 - faqat 2-savdoga 45 USD\n/close 3 - 3-savdoni yopish\nPozitsiyalar tugmasida har savdoning yopish tugmasi chiqadi\n/be 1 - SL ni kirish narxiga\n/be_all - hammasiga breakeven\n/shot - chart skrinshoti\n/buy 1  - BUY ochish (son = lot)\n/sell 1 - SELL ochish\n/close_buy - BUY larni yopish\n/close_sell - SELL larni yopish\n/close_all - hammasini yopish\n/status - hisob holati\n/report - statistika hisoboti\n/tahlil - joriy tahlil (indikatorlar + AI)\n/ai savol - AI'dan erkin savol sorash\n/mute, /unmute - xabarlarni vaqtincha ochirish/yoqish\n/add_on, /add_off - averaging\n/menu - Telegram tugmalarini yangilash");
   }
 
 // Update blokidan "chat":{"id":N...} ni ajratib oladi. Topilmasa 0 qaytaradi.
@@ -1968,6 +1934,5 @@ void OnTimer()
    CheckAveraging();
    DrawInternalArrows();
    PollTelegram();
-   DrawPanel();
   }
 //+------------------------------------------------------------------+
