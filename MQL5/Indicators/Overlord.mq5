@@ -7,7 +7,7 @@
 //|  Asl skriptdagi panel olib tashlangan.                            |
 //+------------------------------------------------------------------+
 #property copyright "Overlord (pandich) - MT5"
-#property version   "1.00"
+#property version   "1.10"
 #property indicator_chart_window
 #property indicator_buffers 28
 #property indicator_plots   10
@@ -36,29 +36,30 @@
 #property indicator_color5  C'0,230,118',C'255,23,68'
 #property indicator_width5  2
 
-#property indicator_label6  "Bar Color"
-#property indicator_type6   DRAW_COLOR_CANDLES
-#property indicator_color6  C'0,230,118',C'255,23,68'
+#property indicator_label6  "BUY"
+#property indicator_type6   DRAW_ARROW
+#property indicator_color6  C'0,230,118'
+#property indicator_width6  3
 
-#property indicator_label7  "BUY"
+#property indicator_label7  "SELL"
 #property indicator_type7   DRAW_ARROW
-#property indicator_color7  C'0,230,118'
+#property indicator_color7  C'255,23,68'
 #property indicator_width7  3
 
-#property indicator_label8  "SELL"
+#property indicator_label8  "Swing High"
 #property indicator_type8   DRAW_ARROW
-#property indicator_color8  C'255,23,68'
-#property indicator_width8  3
+#property indicator_color8  C'41,98,255'
+#property indicator_width8  1
 
-#property indicator_label9  "Swing High"
+#property indicator_label9  "Swing Low"
 #property indicator_type9   DRAW_ARROW
 #property indicator_color9  C'41,98,255'
 #property indicator_width9  1
 
-#property indicator_label10 "Swing Low"
-#property indicator_type10  DRAW_ARROW
-#property indicator_color10 C'41,98,255'
-#property indicator_width10 1
+// shamlar ATAYLAB oxirgi chizma: oldida tursa, keyingi strelkalar buferlari siljib ketgan edi
+#property indicator_label10 "Bar Color"
+#property indicator_type10  DRAW_COLOR_CANDLES
+#property indicator_color10 C'0,230,118',C'255,23,68'
 
 enum ENUM_CORE_MA { CORE_ALMA=0, CORE_HMA=1, CORE_EMA=2 };
 enum ENUM_BARMODE { BAR_CANDLE=0,   // Sham bo'yicha (neon)
@@ -119,8 +120,8 @@ input bool   InpPush      = false;  // Telefonga push
 double BufFillA[], BufFillB[];
 double BufUp[], BufUpClr[], BufDn[], BufDnClr[], BufCore[], BufCoreClr[];
 double BufSt[], BufStClr[];
-double BufO[], BufH[], BufL[], BufC[], BufCandClr[];
 double BufBuy[], BufSell[], BufDotH[], BufDotL[];
+double BufO[], BufH[], BufL[], BufC[], BufCandClr[];
 double Atr[], AtrSt[], E1[], E2[], StU[], StL[], StDir[], StateB[], HmaRaw[];
 
 const double ALMA_SIGMA = 6.0;   // Pine'dagi ta.alma(..., 6)
@@ -164,15 +165,15 @@ int OnInit()
    SetIndexBuffer(7,  BufCoreClr, INDICATOR_COLOR_INDEX);
    SetIndexBuffer(8,  BufSt,      INDICATOR_DATA);
    SetIndexBuffer(9,  BufStClr,   INDICATOR_COLOR_INDEX);
-   SetIndexBuffer(10, BufO,       INDICATOR_DATA);
-   SetIndexBuffer(11, BufH,       INDICATOR_DATA);
-   SetIndexBuffer(12, BufL,       INDICATOR_DATA);
-   SetIndexBuffer(13, BufC,       INDICATOR_DATA);
-   SetIndexBuffer(14, BufCandClr, INDICATOR_COLOR_INDEX);
-   SetIndexBuffer(15, BufBuy,     INDICATOR_DATA);
-   SetIndexBuffer(16, BufSell,    INDICATOR_DATA);
-   SetIndexBuffer(17, BufDotH,    INDICATOR_DATA);
-   SetIndexBuffer(18, BufDotL,    INDICATOR_DATA);
+   SetIndexBuffer(10, BufBuy,     INDICATOR_DATA);
+   SetIndexBuffer(11, BufSell,    INDICATOR_DATA);
+   SetIndexBuffer(12, BufDotH,    INDICATOR_DATA);
+   SetIndexBuffer(13, BufDotL,    INDICATOR_DATA);
+   SetIndexBuffer(14, BufO,       INDICATOR_DATA);
+   SetIndexBuffer(15, BufH,       INDICATOR_DATA);
+   SetIndexBuffer(16, BufL,       INDICATOR_DATA);
+   SetIndexBuffer(17, BufC,       INDICATOR_DATA);
+   SetIndexBuffer(18, BufCandClr, INDICATOR_COLOR_INDEX);
    SetIndexBuffer(19, Atr,        INDICATOR_CALCULATIONS);
    SetIndexBuffer(20, AtrSt,      INDICATOR_CALCULATIONS);
    SetIndexBuffer(21, E1,         INDICATOR_CALCULATIONS);
@@ -200,22 +201,24 @@ int OnInit()
    PlotIndexSetInteger(4, PLOT_LINE_COLOR, 0, InpColBuy);
    PlotIndexSetInteger(4, PLOT_LINE_COLOR, 1, InpColSell);
    PlotIndexSetInteger(5, PLOT_LINE_COLOR, 0, InpColBuy);
-   PlotIndexSetInteger(5, PLOT_LINE_COLOR, 1, InpColSell);
-   PlotIndexSetInteger(6, PLOT_LINE_COLOR, 0, InpColBuy);
-   PlotIndexSetInteger(7, PLOT_LINE_COLOR, 0, InpColSell);
+   PlotIndexSetInteger(6, PLOT_LINE_COLOR, 0, InpColSell);
+   PlotIndexSetInteger(7, PLOT_LINE_COLOR, 0, InpColDot);
    PlotIndexSetInteger(8, PLOT_LINE_COLOR, 0, InpColDot);
-   PlotIndexSetInteger(9, PLOT_LINE_COLOR, 0, InpColDot);
+   PlotIndexSetInteger(9, PLOT_LINE_COLOR, 0, InpColBuy);
+   PlotIndexSetInteger(9, PLOT_LINE_COLOR, 1, InpColSell);
 
-   PlotIndexSetInteger(6, PLOT_ARROW, 233);   PlotIndexSetInteger(6, PLOT_ARROW_SHIFT,  14);
-   PlotIndexSetInteger(7, PLOT_ARROW, 234);   PlotIndexSetInteger(7, PLOT_ARROW_SHIFT, -14);
-   PlotIndexSetInteger(8, PLOT_ARROW, 161);   PlotIndexSetInteger(8, PLOT_ARROW_SHIFT,  -6);
-   PlotIndexSetInteger(9, PLOT_ARROW, 161);   PlotIndexSetInteger(9, PLOT_ARROW_SHIFT,   6);
+   // yozuv shamning ozi yonida, strelka esa yozuvning narigi tomonida
+   int arrShift = (InpSigText==TXT_NONE) ? 12 : 26;
+   PlotIndexSetInteger(5, PLOT_ARROW, 233);   PlotIndexSetInteger(5, PLOT_ARROW_SHIFT,  arrShift);
+   PlotIndexSetInteger(6, PLOT_ARROW, 234);   PlotIndexSetInteger(6, PLOT_ARROW_SHIFT, -arrShift);
+   PlotIndexSetInteger(7, PLOT_ARROW, 161);   PlotIndexSetInteger(7, PLOT_ARROW_SHIFT,  -6);
+   PlotIndexSetInteger(8, PLOT_ARROW, 161);   PlotIndexSetInteger(8, PLOT_ARROW_SHIFT,   6);
 
    if(!InpShowCloud)         PlotIndexSetInteger(0, PLOT_DRAW_TYPE, DRAW_NONE);
    if(!InpShowST)            PlotIndexSetInteger(4, PLOT_DRAW_TYPE, DRAW_NONE);
-   if(InpBarMode==BAR_OFF)   PlotIndexSetInteger(5, PLOT_DRAW_TYPE, DRAW_NONE);
-   if(!InpShowSig)         { PlotIndexSetInteger(6, PLOT_DRAW_TYPE, DRAW_NONE); PlotIndexSetInteger(7, PLOT_DRAW_TYPE, DRAW_NONE); }
-   if(!InpShowDots)        { PlotIndexSetInteger(8, PLOT_DRAW_TYPE, DRAW_NONE); PlotIndexSetInteger(9, PLOT_DRAW_TYPE, DRAW_NONE); }
+   if(!InpShowSig)         { PlotIndexSetInteger(5, PLOT_DRAW_TYPE, DRAW_NONE); PlotIndexSetInteger(6, PLOT_DRAW_TYPE, DRAW_NONE); }
+   if(!InpShowDots)        { PlotIndexSetInteger(7, PLOT_DRAW_TYPE, DRAW_NONE); PlotIndexSetInteger(8, PLOT_DRAW_TYPE, DRAW_NONE); }
+   if(InpBarMode==BAR_OFF)   PlotIndexSetInteger(9, PLOT_DRAW_TYPE, DRAW_NONE);
 
    int sq = (int)MathFloor(MathSqrt(InpCoreLen));
    int coreFrom = (InpMaType==CORE_ALMA) ? InpCoreLen-1 :
@@ -453,7 +456,7 @@ void ProcessBar(const int i, const bool draw, const bool live, const datetime &t
       bool emaOk = !InpUseEma   || E1[i] < E2[i];
       if(gapOk && BufUp[p]!=EMPTY_VALUE && ph > BufUp[p] && ph >= Highest(high, p, InpZoneLen) && trOk && emaOk)
         { sigSell=true; g_target=ph; g_lastSig=i; }
-      if(draw) BufDotH[p] = high[p];
+      if(draw && !(sigSell && InpShowSig)) BufDotH[p] = high[p];   // signal svingida strelka bor
      }
    if(IsPivotLow(p, low))
      {
@@ -463,7 +466,7 @@ void ProcessBar(const int i, const bool draw, const bool live, const datetime &t
       bool emaOk = !InpUseEma   || E1[i] > E2[i];
       if(gapOk && BufDn[p]!=EMPTY_VALUE && pl < BufDn[p] && pl <= Lowest(low, p, InpZoneLen) && trOk && emaOk)
         { sigBuy=true; g_target=pl; g_lastSig=i; }
-      if(draw) BufDotL[p] = low[p];
+      if(draw && !(sigBuy && InpShowSig)) BufDotL[p] = low[p];
      }
 
    if(g_swHiOk && close[i] > g_swHi)
@@ -501,19 +504,19 @@ void ProcessBar(const int i, const bool draw, const bool live, const datetime &t
 
    if(draw && InpShowSig)
      {
+      // yozuv narx birligida emas, shamning ozi chetiga yopishtiriladi (masshtabga bogliq emas)
       string pre = (InpSigText==TXT_QUANTUM) ? "QUANTUM " : "";
-      double off = (Atr[p]!=EMPTY_VALUE) ? Atr[p]*0.9 : 0;
       if(sigBuy)
         {
          BufBuy[p] = low[p];
          if(InpSigText!=TXT_NONE)
-            PutText(PFX+"SB_"+(string)(long)time[p], time[p], low[p]-off, pre+"BUY", InpColBuy, ANCHOR_UPPER);
+            PutText(PFX+"SB_"+(string)(long)time[p], time[p], low[p], pre+"BUY", InpColBuy, ANCHOR_UPPER);
         }
       if(sigSell)
         {
          BufSell[p] = high[p];
          if(InpSigText!=TXT_NONE)
-            PutText(PFX+"SS_"+(string)(long)time[p], time[p], high[p]+off, pre+"SELL", InpColSell, ANCHOR_LOWER);
+            PutText(PFX+"SS_"+(string)(long)time[p], time[p], high[p], pre+"SELL", InpColSell, ANCHOR_LOWER);
         }
      }
 
